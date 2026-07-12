@@ -3,6 +3,18 @@
 import DataTable from "@/components/DataTable";
 import { tierColors } from "@/lib/tierColor";
 
+const ALL_EVIDENCE_TIERS = [
+  "VERIFIED 3-0",
+  "VERIFIED 2-1",
+  "SOURCED UNVERIFIED",
+  "UNVERIFIED-OBSERVED",
+  "UNVERIFIED/MIXED",
+  "NOT CONFIRMED",
+  "REFUTED",
+];
+
+const DEFAULT_EXCLUDED_TIERS = ["NOT CONFIRMED", "REFUTED"];
+
 export default function HooksPage() {
   return (
     <div>
@@ -31,10 +43,12 @@ export default function HooksPage() {
       </p>
       <DataTable
         table="hooks"
-        filterKey="evidence_tier"
         bodyKey="hook_text"
         tierKey="evidence_tier"
         getRowColors={(row) => tierColors(row.evidence_tier)}
+        tierFilterKey="evidence_tier"
+        allTierOptions={ALL_EVIDENCE_TIERS}
+        defaultExcludedTiers={DEFAULT_EXCLUDED_TIERS}
         columns={[
           { key: "hook_text", label: "Hook" },
           { key: "platform", label: "Platform" },
@@ -51,7 +65,7 @@ export default function HooksPage() {
             key: "evidence_tier",
             label: "Evidence tier",
             type: "select",
-            options: ["VERIFIED 3-0", "VERIFIED 2-1", "SOURCED, UNVERIFIED", "NOT CONFIRMED"],
+            options: ALL_EVIDENCE_TIERS,
           },
           { key: "source_report", label: "Source report", type: "text" },
           { key: "notes", label: "Notes", type: "textarea" },

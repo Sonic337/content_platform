@@ -4,12 +4,15 @@ import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 /**
- * columns:       [{ key, label, width? }]
- * filterKey:     column name used for the quick filter dropdown (optional)
- * formFields:    [{ key, label, type: "text" | "textarea" | "select", options? }]
- * bodyKey:       column key whose value renders as the serif body text
- * tierKey:       column key that receives accent color treatment in meta row
- * getRowColors:  (row) => { border: string, text: string } — left stripe + tier text colors
+ * columns:             [{ key, label, width? }]
+ * filterKey:           column name used for the quick filter dropdown (optional)
+ * formFields:          [{ key, label, type: "text" | "textarea" | "select", options? }]
+ * bodyKey:             column key whose value renders as the serif body text
+ * tierKey:             column key that receives accent color treatment in meta row
+ * getRowColors:        (row) => { border: string, text: string } — left stripe + tier text colors
+ * tierFilterKey:       column name to use for multi-select tier toggle filter (optional)
+ * allTierOptions:      array of all possible tier strings for tierFilterKey (required when tierFilterKey is set)
+ * defaultExcludedTiers: tier strings excluded from view on first load (default [])
  */
 export default function DataTable({
   table,
@@ -19,11 +22,16 @@ export default function DataTable({
   bodyKey,
   tierKey,
   getRowColors,
+  extraPayload = {},
+  tierFilterKey,
+  allTierOptions = [],
+  defaultExcludedTiers = [],
 }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [filterValue, setFilterValue] = useState("");
+  const [excludedTiers, setExcludedTiers] = useState(() => new Set(defaultExcludedTiers));
   const [showForm, setShowForm] = useState(false);
   const [formState, setFormState] = useState({});
   const [saving, setSaving] = useState(false);
@@ -35,6 +43,17 @@ export default function DataTable({
     if (filterKey && filterValue) {
       query = query.eq(filterKey, filterValue);
     }
+    if (tierFilterKey && allTierOptions.length > 0 && excludedTiers.size > 0) {
+      const included = allTierOptions.filter((t) => !excludedTiers.has(t));
+      if (included.length === 0) {
+        setRows([]);
+        setLoading(false);
+        return;
+      }
+      console.log("[DataTable] excludedTiers:", [...excludedTiers]);
+      console.log("[DataTable] included:", included);
+      query = query.in(tierFilterKey, included);
+    }
     const { data, error } = await query;
     if (error) {
       setError(error.message);
@@ -43,7 +62,7 @@ export default function DataTable({
       setRows(data || []);
     }
     setLoading(false);
-  }, [table, filterKey, filterValue]);
+  }, [table, filterKey, filterValue, tierFilterKey, excludedTiers, allTierOptions]);
 
   useEffect(() => {
     load();
@@ -56,14 +75,17 @@ export default function DataTable({
   async function handleSubmit(e) {
     e.preventDefault();
     setSaving(true);
-    const payload = { ...formState };
+    const payload = { ...formState, ...extraPayload };
     // tags fields come in as comma-separated strings in the form; convert to array
+    // numeric fields are coerced to Number() to satisfy bigint/numeric DB columns
     for (const field of formFields) {
       if (field.type === "tags" && typeof payload[field.key] === "string") {
         payload[field.key] = payload[field.key]
           .split(",")
           .map((t) => t.trim())
           .filter(Boolean);
+      } else if (field.type === "numeric" && payload[field.key] !== "" && payload[field.key] != null) {
+        payload[field.key] = Number(payload[field.key]);
       }
     }
     const { error } = await supabase.from(table).insert(payload);
@@ -102,7 +124,7 @@ export default function DataTable({
           gap: "12px",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "10px", flexWrap: "wrap" }}>
           {filterKey && (
             <select
               value={filterValue}
@@ -125,6 +147,44 @@ export default function DataTable({
                 </option>
               ))}
             </select>
+          )}
+          {tierFilterKey && allTierOptions.length > 0 && (
+            <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+              {allTierOptions.map((tier) => {
+                const active = !excludedTiers.has(tier);
+                const colors = getRowColors
+                  ? getRowColors({ [tierKey]: tier })
+                  : { border: "#7C8489", text: "#7C8489" };
+                return (
+                  <button
+                    key={tier}
+                    onClick={() =>
+                      setExcludedTiers((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(tier)) next.delete(tier);
+                        else next.add(tier);
+                        return next;
+                      })
+                    }
+                    style={{
+                      borderRadius: "3px",
+                      border: `1px solid ${active ? colors.border : "#232B31"}`,
+                      backgroundColor: "transparent",
+                      padding: "3px 8px",
+                      fontSize: "10px",
+                      fontFamily: "var(--font-ibm-plex-mono)",
+                      color: active ? colors.text : "#7C8489",
+                      cursor: "pointer",
+                      letterSpacing: "0.03em",
+                      opacity: active ? 1 : 0.55,
+                      transition: "opacity 0.1s, border-color 0.1s, color 0.1s",
+                    }}
+                  >
+                    {tier}
+                  </button>
+                );
+              })}
+            </div>
           )}
           <span
             style={{
@@ -216,6 +276,15 @@ export default function DataTable({
                     </option>
                   ))}
                 </select>
+              ) : field.type === "numeric" ? (
+                <input
+                  type="number"
+                  value={formState[field.key] || ""}
+                  onChange={(e) =>
+                    setFormState((s) => ({ ...s, [field.key]: e.target.value }))
+                  }
+                  style={inputStyle}
+                />
               ) : (
                 <input
                   type="text"
