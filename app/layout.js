@@ -29,6 +29,7 @@ const NAV_ITEMS = [
   { href: "/hooks", label: "Hook bank" },
   { href: "/corpus", label: "Writing corpus" },
   { href: "/pipeline", label: "Pipeline" },
+  { href: "/analytics", label: "Analytics" },
 ];
 
 export default function RootLayout({ children }) {

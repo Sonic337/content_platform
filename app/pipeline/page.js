@@ -137,19 +137,51 @@ function RunCard({ run, onUpdated }) {
             {/* Script */}
             <div style={{ marginBottom: "20px" }}>
               <div style={labelStyle}>Script</div>
-              <div
-                style={{
-                  ...serif,
-                  fontSize: "14px",
-                  lineHeight: "1.7",
-                  color: "#E8E6DE",
-                  whiteSpace: "pre-wrap",
-                  borderLeft: "2px solid #232B31",
-                  paddingLeft: "12px",
-                }}
-              >
-                {run.script}
-              </div>
+              {Array.isArray(run.script_segments) && run.script_segments.length > 0 ? (
+                <div>
+                  {run.script_segments.map((seg, i) => {
+                    const startMin = Math.floor(seg.start_sec / 60);
+                    const startSec = String(seg.start_sec % 60).padStart(2, "0");
+                    const endMin = Math.floor(seg.end_sec / 60);
+                    const endSec = String(seg.end_sec % 60).padStart(2, "0");
+                    const ts = `${startMin}:${startSec}–${endMin}:${endSec}`;
+                    return (
+                      <div
+                        key={i}
+                        style={{
+                          borderBottom: "1px solid #232B31",
+                          padding: "10px 0",
+                        }}
+                      >
+                        <div style={{ display: "flex", gap: "10px", alignItems: "baseline", marginBottom: "5px" }}>
+                          <span style={{ ...mono, fontSize: "11px", color: "#7C8489" }}>{ts}</span>
+                          <span style={{ ...mono, fontSize: "10px", color: "#7C8489", letterSpacing: "0.06em", textTransform: "uppercase" }}>
+                            {seg.label}
+                          </span>
+                        </div>
+                        <div style={{ ...serif, fontSize: "14px", lineHeight: "1.65", color: "#E8E6DE" }}>
+                          {seg.text}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                // Fallback for rows created before script_segments was added
+                <div
+                  style={{
+                    ...serif,
+                    fontSize: "14px",
+                    lineHeight: "1.7",
+                    color: "#E8E6DE",
+                    whiteSpace: "pre-wrap",
+                    borderLeft: "2px solid #232B31",
+                    paddingLeft: "12px",
+                  }}
+                >
+                  {run.script}
+                </div>
+              )}
             </div>
 
             {/* Hook options */}
@@ -303,6 +335,7 @@ function RunCard({ run, onUpdated }) {
 export default function PipelinePage() {
   const [inputText, setInputText] = useState("");
   const [platform, setPlatform] = useState("youtube_shorts");
+  const [targetDuration, setTargetDuration] = useState("");
   const [topicId, setTopicId] = useState("");
   const [topics, setTopics] = useState([]);
   const [inputMode, setInputMode] = useState("paste"); // "paste" | "topic"
@@ -340,6 +373,7 @@ export default function PipelinePage() {
     e.preventDefault();
     setGenError(null);
 
+    const parsedDuration = targetDuration !== "" ? Number(targetDuration) : undefined;
     const body = {
       target_platform: platform,
       input_text:
@@ -347,6 +381,7 @@ export default function PipelinePage() {
           ? topics.find((t) => String(t.id) === topicId)?.title ?? ""
           : inputText,
       topic_id: inputMode === "topic" && topicId ? Number(topicId) : undefined,
+      target_duration_sec: parsedDuration && !Number.isNaN(parsedDuration) ? parsedDuration : undefined,
     };
 
     if (!body.input_text.trim()) {
@@ -437,7 +472,7 @@ export default function PipelinePage() {
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: "1fr 1fr",
+            gridTemplateColumns: "1fr 1fr 1fr",
             gap: "14px",
             alignItems: "start",
           }}
@@ -456,6 +491,8 @@ export default function PipelinePage() {
                 style={inputStyle}
               />
             ) : (
+              <>
+
               <select
                 value={topicId}
                 onChange={(e) => setTopicId(e.target.value)}
@@ -468,10 +505,11 @@ export default function PipelinePage() {
                   </option>
                 ))}
               </select>
+              </>
             )}
           </div>
 
-          {/* Right: platform */}
+          {/* Platform */}
           <div>
             <label style={labelStyle}>Target platform</label>
             <select
@@ -485,6 +523,28 @@ export default function PipelinePage() {
                 </option>
               ))}
             </select>
+          </div>
+
+          {/* Duration */}
+          <div>
+            <label style={labelStyle}>Target duration (seconds)</label>
+            <input
+              type="number"
+              min={5}
+              max={600}
+              value={targetDuration}
+              onChange={(e) => setTargetDuration(e.target.value)}
+              placeholder={
+                ["tiktok", "instagram_reels", "youtube_shorts"].includes(platform)
+                  ? "30"
+                  : "60"
+              }
+              style={{
+                ...selectStyle,
+                width: "100%",
+                boxSizing: "border-box",
+              }}
+            />
           </div>
 
           {/* Generate button + hint */}
