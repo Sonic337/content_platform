@@ -1,16 +1,40 @@
+"use client";
+
 import DataTable from "@/components/DataTable";
+import { tierColors } from "@/lib/tierColor";
 
 export default function HooksPage() {
   return (
     <div>
-      <h1 className="mb-1 text-xl font-medium text-neutral-100">Hook bank</h1>
-      <p className="mb-6 text-sm text-neutral-400">
+      <h1
+        style={{
+          marginBottom: "4px",
+          fontFamily: "var(--font-ibm-plex-sans)",
+          fontSize: "18px",
+          fontWeight: 500,
+          letterSpacing: "0.02em",
+          color: "#E8E6DE",
+        }}
+      >
+        Hook bank
+      </h1>
+      <p
+        style={{
+          marginBottom: "28px",
+          fontFamily: "var(--font-ibm-plex-mono)",
+          fontSize: "12px",
+          color: "#7C8489",
+        }}
+      >
         Seeded from master_hook_bank.xlsx. Evidence tier tells you whether a
         hook is safe to reuse or still a hypothesis.
       </p>
       <DataTable
         table="hooks"
         filterKey="evidence_tier"
+        bodyKey="hook_text"
+        tierKey="evidence_tier"
+        getRowColors={(row) => tierColors(row.evidence_tier)}
         columns={[
           { key: "hook_text", label: "Hook" },
           { key: "platform", label: "Platform" },

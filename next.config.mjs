@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  /* config options here */
+  serverExternalPackages: ["@higgsfield/client", "@anthropic-ai/sdk"],
 };
 
 export default nextConfig;

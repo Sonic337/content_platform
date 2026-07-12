@@ -4,11 +4,22 @@ import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 /**
- * columns:    [{ key, label, width? }]
- * filterKey:  column name used for the quick filter dropdown (optional)
- * formFields: [{ key, label, type: "text" | "textarea" | "select", options? }]
+ * columns:       [{ key, label, width? }]
+ * filterKey:     column name used for the quick filter dropdown (optional)
+ * formFields:    [{ key, label, type: "text" | "textarea" | "select", options? }]
+ * bodyKey:       column key whose value renders as the serif body text
+ * tierKey:       column key that receives accent color treatment in meta row
+ * getRowColors:  (row) => { border: string, text: string } — left stripe + tier text colors
  */
-export default function DataTable({ table, columns, filterKey, formFields }) {
+export default function DataTable({
+  table,
+  columns,
+  filterKey,
+  formFields,
+  bodyKey,
+  tierKey,
+  getRowColors,
+}) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -66,15 +77,46 @@ export default function DataTable({ table, columns, filterKey, formFields }) {
     load();
   }
 
+  const inputStyle = {
+    width: "100%",
+    boxSizing: "border-box",
+    borderRadius: "3px",
+    border: "1px solid #232B31",
+    backgroundColor: "#171D21",
+    padding: "8px 10px",
+    fontSize: "13px",
+    color: "#E8E6DE",
+    fontFamily: "var(--font-ibm-plex-mono)",
+    outline: "none",
+  };
+
   return (
     <div>
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
+      {/* ── Control bar ── */}
+      <div
+        style={{
+          marginBottom: "20px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: "12px",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
           {filterKey && (
             <select
               value={filterValue}
               onChange={(e) => setFilterValue(e.target.value)}
-              className="rounded-md border border-neutral-700 bg-neutral-900 px-3 py-1.5 text-sm text-neutral-200"
+              style={{
+                borderRadius: "3px",
+                border: "1px solid #232B31",
+                backgroundColor: "#171D21",
+                padding: "5px 10px",
+                fontSize: "11px",
+                color: "#7C8489",
+                fontFamily: "var(--font-ibm-plex-mono)",
+                cursor: "pointer",
+              }}
             >
               <option value="">All {filterKey}</option>
               {filterOptions.map((opt) => (
@@ -84,24 +126,72 @@ export default function DataTable({ table, columns, filterKey, formFields }) {
               ))}
             </select>
           )}
-          <span className="text-xs text-neutral-500">{rows.length} rows</span>
+          <span
+            style={{
+              fontFamily: "var(--font-ibm-plex-mono)",
+              fontSize: "11px",
+              color: "#7C8489",
+            }}
+          >
+            {rows.length} rows
+          </span>
         </div>
         <button
           onClick={() => setShowForm((v) => !v)}
-          className="rounded-md bg-neutral-100 px-3 py-1.5 text-sm font-medium text-neutral-900 hover:bg-white"
+          style={{
+            borderRadius: "3px",
+            border: "1px solid #232B31",
+            backgroundColor: "transparent",
+            padding: "5px 12px",
+            fontSize: "11px",
+            fontFamily: "var(--font-ibm-plex-mono)",
+            color: "#7C8489",
+            cursor: "pointer",
+            letterSpacing: "0.04em",
+            textTransform: "uppercase",
+          }}
         >
           {showForm ? "Cancel" : "Add row"}
         </button>
       </div>
 
+      {/* ── Add-row form ── */}
       {showForm && (
         <form
           onSubmit={handleSubmit}
-          className="mb-6 grid grid-cols-1 gap-3 rounded-lg border border-neutral-800 p-4 sm:grid-cols-2"
+          style={{
+            marginBottom: "24px",
+            display: "grid",
+            gridTemplateColumns: "1fr 1fr",
+            gap: "12px",
+            border: "1px solid #232B31",
+            borderRadius: "3px",
+            padding: "16px",
+            backgroundColor: "#171D21",
+          }}
         >
           {formFields.map((field) => (
-            <div key={field.key} className={field.type === "textarea" ? "sm:col-span-2" : ""}>
-              <label className="mb-1 block text-xs text-neutral-400">{field.label}</label>
+            <div
+              key={field.key}
+              style={
+                field.type === "textarea"
+                  ? { gridColumn: "1 / -1" }
+                  : {}
+              }
+            >
+              <label
+                style={{
+                  display: "block",
+                  marginBottom: "4px",
+                  fontSize: "10px",
+                  fontFamily: "var(--font-ibm-plex-mono)",
+                  color: "#7C8489",
+                  letterSpacing: "0.06em",
+                  textTransform: "uppercase",
+                }}
+              >
+                {field.label}
+              </label>
               {field.type === "textarea" ? (
                 <textarea
                   rows={4}
@@ -109,7 +199,7 @@ export default function DataTable({ table, columns, filterKey, formFields }) {
                   onChange={(e) =>
                     setFormState((s) => ({ ...s, [field.key]: e.target.value }))
                   }
-                  className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100"
+                  style={inputStyle}
                 />
               ) : field.type === "select" ? (
                 <select
@@ -117,7 +207,7 @@ export default function DataTable({ table, columns, filterKey, formFields }) {
                   onChange={(e) =>
                     setFormState((s) => ({ ...s, [field.key]: e.target.value }))
                   }
-                  className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100"
+                  style={inputStyle}
                 >
                   <option value="">Select…</option>
                   {field.options.map((opt) => (
@@ -134,16 +224,27 @@ export default function DataTable({ table, columns, filterKey, formFields }) {
                   onChange={(e) =>
                     setFormState((s) => ({ ...s, [field.key]: e.target.value }))
                   }
-                  className="w-full rounded-md border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-neutral-100"
+                  style={inputStyle}
                 />
               )}
             </div>
           ))}
-          <div className="sm:col-span-2">
+          <div style={{ gridColumn: "1 / -1" }}>
             <button
               type="submit"
               disabled={saving}
-              className="rounded-md bg-neutral-100 px-4 py-2 text-sm font-medium text-neutral-900 hover:bg-white disabled:opacity-50"
+              style={{
+                borderRadius: "3px",
+                border: "1px solid #232B31",
+                backgroundColor: "transparent",
+                padding: "6px 16px",
+                fontSize: "11px",
+                fontFamily: "var(--font-ibm-plex-mono)",
+                color: saving ? "#7C8489" : "#E8E6DE",
+                cursor: saving ? "not-allowed" : "pointer",
+                letterSpacing: "0.04em",
+                textTransform: "uppercase",
+              }}
             >
               {saving ? "Saving…" : "Save"}
             </button>
@@ -151,49 +252,116 @@ export default function DataTable({ table, columns, filterKey, formFields }) {
         </form>
       )}
 
+      {/* ── Error banner ── */}
       {error && (
-        <div className="mb-4 rounded-md border border-red-900 bg-red-950 px-3 py-2 text-sm text-red-300">
+        <div
+          style={{
+            marginBottom: "16px",
+            borderRadius: "3px",
+            border: "1px solid #B4483F",
+            backgroundColor: "#1a0e0d",
+            padding: "8px 12px",
+            fontSize: "12px",
+            fontFamily: "var(--font-ibm-plex-mono)",
+            color: "#C96158",
+          }}
+        >
           {error}
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-lg border border-neutral-800">
-        <table className="w-full text-left text-sm">
-          <thead>
-            <tr className="border-b border-neutral-800 bg-neutral-900/60">
-              {columns.map((col) => (
-                <th key={col.key} className="px-3 py-2 font-medium text-neutral-400">
-                  {col.label}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={columns.length} className="px-3 py-6 text-center text-neutral-500">
-                  Loading…
-                </td>
-              </tr>
-            ) : rows.length === 0 ? (
-              <tr>
-                <td colSpan={columns.length} className="px-3 py-6 text-center text-neutral-500">
-                  No rows yet. Connect Supabase env vars and run the migration, or add one above.
-                </td>
-              </tr>
-            ) : (
-              rows.map((row) => (
-                <tr key={row.id} className="border-b border-neutral-800/60">
-                  {columns.map((col) => (
-                    <td key={col.key} className="max-w-xs px-3 py-2 align-top text-neutral-300">
-                      {Array.isArray(row[col.key]) ? row[col.key].join(", ") : String(row[col.key] ?? "")}
-                    </td>
-                  ))}
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+      {/* ── Entry list ── */}
+      <div style={{ borderTop: "1px solid #232B31" }}>
+        {loading ? (
+          <div
+            style={{
+              padding: "32px",
+              textAlign: "center",
+              fontFamily: "var(--font-ibm-plex-mono)",
+              fontSize: "12px",
+              color: "#7C8489",
+            }}
+          >
+            Loading…
+          </div>
+        ) : rows.length === 0 ? (
+          <div
+            style={{
+              padding: "32px",
+              textAlign: "center",
+              fontFamily: "var(--font-ibm-plex-mono)",
+              fontSize: "12px",
+              color: "#7C8489",
+            }}
+          >
+            No rows yet. Connect Supabase env vars and run the migration, or add one above.
+          </div>
+        ) : (
+          rows.map((row) => {
+            const colors = getRowColors
+              ? getRowColors(row)
+              : { border: "#7C8489", text: "#7C8489" };
+            const metaCols = bodyKey
+              ? columns.filter((c) => c.key !== bodyKey)
+              : columns;
+            const bodyText = bodyKey ? String(row[bodyKey] ?? "") : "";
+
+            return (
+              <div
+                key={row.id}
+                style={{
+                  borderLeft: `3px solid ${colors.border}`,
+                  borderRadius: 0,
+                  borderBottom: "1px solid #232B31",
+                  backgroundColor: "#171D21",
+                  padding: "14px 16px",
+                }}
+              >
+                {bodyKey && (
+                  <div
+                    style={{
+                      fontFamily: "var(--font-fraunces)",
+                      fontSize: "15px",
+                      lineHeight: "1.55",
+                      color: "#E8E6DE",
+                      marginBottom: metaCols.length ? "8px" : 0,
+                    }}
+                  >
+                    {bodyText || "—"}
+                  </div>
+                )}
+                {metaCols.length > 0 && (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: "14px",
+                      fontFamily: "var(--font-ibm-plex-mono)",
+                      fontSize: "11px",
+                      lineHeight: "1.4",
+                    }}
+                  >
+                    {metaCols.map((col) => {
+                      const val = Array.isArray(row[col.key])
+                        ? row[col.key].join(", ")
+                        : String(row[col.key] ?? "");
+                      if (!val || val === "null") return null;
+                      const isAccent = col.key === tierKey;
+                      return (
+                        <span
+                          key={col.key}
+                          style={{ color: isAccent ? colors.text : "#7C8489" }}
+                        >
+                          {val}
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })
+        )}
       </div>
     </div>
   );

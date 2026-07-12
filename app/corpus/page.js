@@ -1,15 +1,37 @@
+"use client";
+
 import DataTable from "@/components/DataTable";
 
 export default function CorpusPage() {
   return (
     <div>
-      <h1 className="mb-1 text-xl font-medium text-neutral-100">Writing corpus</h1>
-      <p className="mb-6 text-sm text-neutral-400">
+      <h1
+        style={{
+          marginBottom: "4px",
+          fontFamily: "var(--font-ibm-plex-sans)",
+          fontSize: "18px",
+          fontWeight: 500,
+          letterSpacing: "0.02em",
+          color: "#E8E6DE",
+        }}
+      >
+        Writing corpus
+      </h1>
+      <p
+        style={{
+          marginBottom: "28px",
+          fontFamily: "var(--font-ibm-plex-mono)",
+          fontSize: "12px",
+          color: "#7C8489",
+        }}
+      >
         Articles and posts used to train the AI on voice and style.
       </p>
       <DataTable
         table="corpus"
         filterKey="platform_published"
+        bodyKey="title"
+        getRowColors={() => ({ border: "#7C8489", text: "#7C8489" })}
         columns={[
           { key: "title", label: "Title" },
           { key: "platform_published", label: "Platform" },

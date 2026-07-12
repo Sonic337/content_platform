@@ -1,15 +1,39 @@
+"use client";
+
 import DataTable from "@/components/DataTable";
+import { topicStatusColors } from "@/lib/tierColor";
 
 export default function TopicsPage() {
   return (
     <div>
-      <h1 className="mb-1 text-xl font-medium text-neutral-100">Topics feed</h1>
-      <p className="mb-6 text-sm text-neutral-400">
+      <h1
+        style={{
+          marginBottom: "4px",
+          fontFamily: "var(--font-ibm-plex-sans)",
+          fontSize: "18px",
+          fontWeight: 500,
+          letterSpacing: "0.02em",
+          color: "#E8E6DE",
+        }}
+      >
+        Topics feed
+      </h1>
+      <p
+        style={{
+          marginBottom: "28px",
+          fontFamily: "var(--font-ibm-plex-mono)",
+          fontSize: "12px",
+          color: "#7C8489",
+        }}
+      >
         Placeholder data until Hermes writes here directly.
       </p>
       <DataTable
         table="topics"
         filterKey="status"
+        bodyKey="title"
+        tierKey="status"
+        getRowColors={(row) => topicStatusColors(row.status)}
         columns={[
           { key: "title", label: "Title" },
           { key: "source_name", label: "Source" },
