@@ -30,6 +30,7 @@ const NAV_ITEMS = [
   { href: "/corpus", label: "Writing corpus" },
   { href: "/pipeline", label: "Pipeline" },
   { href: "/analytics", label: "Analytics" },
+  { href: "/import-review", label: "Import review" },
 ];
 
 export default function RootLayout({ children }) {
