@@ -207,9 +207,7 @@ All live values are in `.env.local` (gitignored). No `.env`, `.env.production`, 
 
 7. **RLS is open** — `for all using (true)` policies are appropriate for single-team alpha. Tighten before granting external agent write access.
 
-8. **Migration 009 pending apply** — `007` and `008` are confirmed applied to the live database (tier constraint and `times_used`/`increment_hook_usage` verified in production). Only `009_import_review_queue.sql` remains to be run. Until it is applied, `/import-review` and `POST /api/import-hooks` will fail (`import_review_queue` table and `find_similar_hooks` RPC do not exist).
-
-9. **Supabase SQL editor silent failure (operational watch)** — This project's SQL editor has repeatedly reported "Success. No rows returned" for `ALTER TABLE`, `CREATE FUNCTION`, and `UPDATE` statements run in isolation, without the change actually landing — confirmed by a subsequent `SELECT` in a separate execution showing no change. Always pair a write with a verifying `SELECT` in the same execution block (e.g. `ALTER TABLE ...; SELECT column_name FROM information_schema.columns WHERE table_name = 'hooks';`). Do not trust a bare success message for schema or data changes.
+8. **Supabase SQL editor silent failure (operational watch)** — This project's SQL editor has repeatedly reported "Success. No rows returned" for `ALTER TABLE`, `CREATE FUNCTION`, and `UPDATE` statements run in isolation, without the change actually landing — confirmed by a subsequent `SELECT` in a separate execution showing no change. Always pair a write with a verifying `SELECT` in the same execution block (e.g. `ALTER TABLE ...; SELECT column_name FROM information_schema.columns WHERE table_name = 'hooks';`). Do not trust a bare success message for schema or data changes.
 
 10. **Remove placeholder copy referencing unbuilt features** — `app/pipeline/page.js` previously had a line referencing "cron job generation" next to the topic selector; removed because Hermes (the cron-based topic ingestion agent) is not built. If similar placeholder copy appears elsewhere referencing unbuilt features, remove it the same way rather than leaving it as aspirational UI.
 
@@ -260,7 +258,7 @@ All migrations in `supabase/migrations/` are **reference only** after they've be
 | `006_analytics.sql` | Applied | Creates `analytics` table with optional `pipeline_run_id` FK |
 | `007_hooks_tier_constraint.sql` | Applied | Drops old 4-value check constraint; LIKE-pattern UPDATEs normalise all descriptive variants to 7 canonical tier values; re-adds constraint inside a DO block (idempotent) |
 | `008_hook_usage_tracking.sql` | Applied | Adds `times_used` (int, default 0, not null) and `last_used_at` (timestamptz) to `hooks`; creates `increment_hook_usage(uuid[])` RPC for atomic batch increment |
-| `009_import_review_queue.sql` | **Pending apply** | Enables `pg_trgm`; adds GIN trigram index on `hooks.hook_text`; creates `import_review_queue` table and `find_similar_hooks(query_text, threshold)` RPC |
+| `009_import_review_queue.sql` | Applied | Enables `pg_trgm`; adds GIN trigram index on `hooks.hook_text`; creates `import_review_queue` table and `find_similar_hooks(query_text, threshold)` RPC |
 | `011_topics_original_date.sql` | Applied | Adds `original_date date` (nullable) to `topics`; wired into `POST /api/import-topics` |
 | `012_selected_hook_tier.sql` | Applied | Adds `selected_hook_tier text` (nullable) to `pipeline_runs`; saved at approval time |
 | `013_hook_transforms.sql` | Applied | Creates `hook_transforms` table (`source_hook_id` → `hooks`, `target_platform`, `transformed_text`); GIN lookup index; RLS open policy |
