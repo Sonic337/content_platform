@@ -357,12 +357,16 @@ export async function POST(request) {
     const experimental = (rawGroups.experimental ?? []).map(resolveHookEntry);
 
     // Derive note from actual resolved tiers — never trust the model's self-report
-    const verifiedCount = conservative.filter(h => CONSERVATIVE_VERIFIED_TIERS.has(h.evidence_tier)).length;
-    const fallbackHooks = conservative.filter(h => !CONSERVATIVE_VERIFIED_TIERS.has(h.evidence_tier));
     let conservative_note = null;
-    if (fallbackHooks.length > 0) {
-      const fallbackTiers = [...new Set(fallbackHooks.map(h => h.evidence_tier ?? "unknown"))];
-      conservative_note = `Only ${verifiedCount} truly VERIFIED hook${verifiedCount === 1 ? "" : "s"} available for this topic; included tiers: ${fallbackTiers.join(", ")} as fallback.`;
+    if (conservative.length === 0) {
+      conservative_note = "No hooks at VERIFIED or SOURCED UNVERIFIED tier were relevant to this topic — none included.";
+    } else {
+      const verifiedCount = conservative.filter(h => CONSERVATIVE_VERIFIED_TIERS.has(h.evidence_tier)).length;
+      const fallbackHooks = conservative.filter(h => !CONSERVATIVE_VERIFIED_TIERS.has(h.evidence_tier));
+      if (fallbackHooks.length > 0) {
+        const fallbackTiers = [...new Set(fallbackHooks.map(h => h.evidence_tier ?? "unknown"))];
+        conservative_note = `Only ${verifiedCount} truly VERIFIED hook${verifiedCount === 1 ? "" : "s"} available for this topic; included tiers: ${fallbackTiers.join(", ")} as fallback.`;
+      }
     }
 
     return {

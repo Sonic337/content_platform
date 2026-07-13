@@ -207,7 +207,8 @@ function RunCard({ run, onUpdated }) {
                   { key: "experimental", label: "Experimental", accent: "#B4483F" },
                 ].map(({ key, label, accent }) => {
                   const group = hookGroups[key];
-                  if (!group.length) return null;
+                  const hasNote = key === "conservative" && hookGroups.conservative_note;
+                  if (!group.length && !hasNote) return null;
                   return (
                     <div key={key} style={{ marginBottom: "12px" }}>
                       <div style={{ ...mono, fontSize: "9px", color: accent, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: key === "conservative" && hookGroups.conservative_note ? "3px" : "6px", paddingLeft: "2px" }}>
