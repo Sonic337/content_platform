@@ -253,6 +253,7 @@ export default function ImportReviewPage() {
   // ── CSV import state ──
   const [csvText, setCsvText] = useState("");
   const [preview, setPreview] = useState([]);
+  const [fileName, setFileName] = useState("");
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
   const [importError, setImportError] = useState(null);
@@ -285,8 +286,14 @@ export default function ImportReviewPage() {
   function handleFileUpload(e) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setFileName(file.name);
     const reader = new FileReader();
-    reader.onload = (ev) => setCsvText(ev.target.result ?? "");
+    reader.onload = (ev) => {
+      const text = ev.target.result ?? "";
+      setCsvText(text);
+      setPreview(text.trim() ? parseCSV(text) : []);
+      setImportResult(null);
+    };
     reader.readAsText(file);
   }
 
@@ -306,6 +313,7 @@ export default function ImportReviewPage() {
       if (!res.ok) throw new Error(json.error ?? "Import failed");
       setImportResult(json);
       setCsvText("");
+      setFileName("");
       await loadQueue();
     } catch (e) {
       setImportError(e.message);
@@ -382,18 +390,35 @@ export default function ImportReviewPage() {
           Upload CSV
         </div>
 
-        <input
-          type="file"
-          accept=".csv,text/csv"
-          onChange={handleFileUpload}
-          style={{
-            ...mono,
-            fontSize: "12px",
-            color: "#7C8489",
-            marginBottom: "14px",
-            display: "block",
-          }}
-        />
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "14px" }}>
+          <label
+            style={{
+              ...mono,
+              display: "inline-block",
+              fontSize: "11px",
+              letterSpacing: "0.06em",
+              textTransform: "uppercase",
+              padding: "5px 14px",
+              borderRadius: "3px",
+              border: "1px solid #3A4248",
+              color: "#7C8489",
+              cursor: "pointer",
+            }}
+          >
+            Choose file
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              onChange={handleFileUpload}
+              style={{ display: "none" }}
+            />
+          </label>
+          {fileName && (
+            <span style={{ ...mono, fontSize: "12px", color: "#7C8489" }}>
+              {fileName}
+            </span>
+          )}
+        </div>
 
         <div style={{ marginBottom: "10px" }}>
           <label
@@ -411,7 +436,7 @@ export default function ImportReviewPage() {
           </label>
           <textarea
             value={csvText}
-            onChange={(e) => { setCsvText(e.target.value); setImportResult(null); }}
+            onChange={(e) => { setCsvText(e.target.value); setFileName(""); setImportResult(null); }}
             rows={8}
             placeholder={"hook_text,platform,category_pattern,creator_archetype,mechanism,evidence_tier,source_report,notes\n\"Your hook text here\",..."}
             style={{ ...inputStyle, resize: "vertical" }}
