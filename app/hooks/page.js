@@ -38,40 +38,39 @@ export default function HooksPage() {
     return `${hookId}:${platform}`;
   }
 
-  async function handleTransform(row) {
+  async function handleTransform(row, force = false) {
     const hookId = row.id;
     const platform = platformSelections[hookId];
     if (!platform) return;
 
     const key = getResultKey(hookId, platform);
 
-    // Already have a result (cached in component state) — do nothing
-    if (transformResults[key]?.text) return;
-
     // Mark loading
     setTransformResults((prev) => ({ ...prev, [key]: { loading: true, error: null, text: null, tier: null } }));
 
-    // Check DB cache first
-    const { data: cached } = await supabase
-      .from("hook_transforms")
-      .select("transformed_text")
-      .eq("source_hook_id", hookId)
-      .eq("target_platform", platform)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    // Check DB cache first (skip on force re-run)
+    if (!force) {
+      const { data: cached } = await supabase
+        .from("hook_transforms")
+        .select("transformed_text")
+        .eq("source_hook_id", hookId)
+        .eq("target_platform", platform)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-    if (cached?.transformed_text) {
-      console.log("[transform] cache hit for", key);
-      setTransformResults((prev) => ({
-        ...prev,
-        [key]: { loading: false, error: null, text: cached.transformed_text, tier: row.evidence_tier ?? null, fromCache: true },
-      }));
-      return;
+      if (cached?.transformed_text) {
+        console.log("[transform] cache hit for", key);
+        setTransformResults((prev) => ({
+          ...prev,
+          [key]: { loading: false, error: null, text: cached.transformed_text, tier: row.evidence_tier ?? null, fromCache: true },
+        }));
+        return;
+      }
     }
 
-    // Cache miss — call the API
-    console.log("[transform] cache miss, calling API for", key);
+    // Cache miss (or force) — call the API
+    console.log("[transform]", force ? "forced re-run for" : "cache miss, calling API for", key);
     try {
       const res = await fetch("/api/transform-hook", {
         method: "POST",
@@ -137,7 +136,7 @@ export default function HooksPage() {
           </select>
           <button
             disabled={!platform || result?.loading}
-            onClick={() => handleTransform(row)}
+            onClick={() => handleTransform(row, !!result?.text)}
             style={{
               ...mono,
               borderRadius: "3px",
@@ -151,7 +150,7 @@ export default function HooksPage() {
               textTransform: "uppercase",
             }}
           >
-            {result?.loading ? "Working…" : result?.text ? "Re-run" : "→ Transform"}
+            {result?.loading ? "Working…" : result?.text ? "↺ Re-run" : "→ Transform"}
           </button>
           {result?.fromCache && (
             <span style={{ ...mono, fontSize: "10px", color: "#7C8489" }}>cached</span>
