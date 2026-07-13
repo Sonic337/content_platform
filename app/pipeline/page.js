@@ -290,7 +290,7 @@ function RunCard({ run, onUpdated }) {
               </button>
               {run.status === "draft" && (
                 <button
-                  onClick={() => updateRun({ status: "approved" })}
+                  onClick={() => updateRun({ status: "approved", selected_hook: selectedHook, selected_title: selectedTitle })}
                   disabled={saving}
                   style={{
                     ...mono,
