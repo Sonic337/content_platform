@@ -4,7 +4,7 @@
 
 # Content Ops Platform — Project State
 
-_Last updated: 2026-07-13_
+_Last updated: 2026-07-13 (session 2)_
 
 ## Before you start
 
@@ -88,7 +88,7 @@ DataTable with filter by status, add-row form. Fields: title, summary, source_na
 
 ### Writing corpus (`app/corpus/page.js`, table: `corpus`)
 
-**Status: import UI built; corpus content is 0 rows (confirmed 2026-07-13).**
+**Status: import UI built; corpus content is 0 rows (confirmed live query 2026-07-13).**
 
 The page has two modes toggled by a control in the UI:
 - **Add row** — the standard DataTable add-row form for single entries.
@@ -181,7 +181,11 @@ All live values are in `.env.local` (gitignored). No `.env`, `.env.production`, 
 
 7. **RLS is open** — `for all using (true)` policies are appropriate for single-team alpha. Tighten before granting external agent write access.
 
-8. **Migrations 007 and 008 pending apply** — Both are committed to the repo but have not yet been run against the live Supabase database. The app will behave incorrectly until they are applied (hooks tier filter will fail to match old comma-variant rows; usage tracking columns won't exist). Apply both in the Supabase SQL editor in order.
+8. **Migration 009 pending apply** — `007` and `008` are confirmed applied to the live database (tier constraint and `times_used`/`increment_hook_usage` verified in production). Only `009_import_review_queue.sql` remains to be run. Until it is applied, `/import-review` and `POST /api/import-hooks` will fail (`import_review_queue` table and `find_similar_hooks` RPC do not exist).
+
+9. **Supabase SQL editor silent failure (operational watch)** — This project's SQL editor has repeatedly reported "Success. No rows returned" for `ALTER TABLE`, `CREATE FUNCTION`, and `UPDATE` statements run in isolation, without the change actually landing — confirmed by a subsequent `SELECT` in a separate execution showing no change. Always pair a write with a verifying `SELECT` in the same execution block (e.g. `ALTER TABLE ...; SELECT column_name FROM information_schema.columns WHERE table_name = 'hooks';`). Do not trust a bare success message for schema or data changes.
+
+10. **Remove placeholder copy referencing unbuilt features** — `app/pipeline/page.js` previously had a line referencing "cron job generation" next to the topic selector; removed because Hermes (the cron-based topic ingestion agent) is not built. If similar placeholder copy appears elsewhere referencing unbuilt features, remove it the same way rather than leaving it as aspirational UI.
 
 ---
 
@@ -226,8 +230,9 @@ All migrations in `supabase/migrations/` are **reference only** after they've be
 | `004_script_segments.sql` | Applied, no file | Adds `script_segments jsonb` column to `pipeline_runs` |
 | `005_visual_patterns.sql` | Applied, no file | Creates `visual_patterns` table |
 | `006_analytics.sql` | Applied | Creates `analytics` table with optional `pipeline_run_id` FK |
-| `007_hooks_tier_constraint.sql` | **Pending apply** | Drops old 4-value check constraint; LIKE-pattern UPDATEs normalise all descriptive variants to 7 canonical tier values; re-adds constraint inside a DO block (idempotent) |
-| `008_hook_usage_tracking.sql` | **Pending apply** | Adds `times_used` (int, default 0, not null) and `last_used_at` (timestamptz) to `hooks`; creates `increment_hook_usage(uuid[])` RPC for atomic batch increment |
+| `007_hooks_tier_constraint.sql` | Applied | Drops old 4-value check constraint; LIKE-pattern UPDATEs normalise all descriptive variants to 7 canonical tier values; re-adds constraint inside a DO block (idempotent) |
+| `008_hook_usage_tracking.sql` | Applied | Adds `times_used` (int, default 0, not null) and `last_used_at` (timestamptz) to `hooks`; creates `increment_hook_usage(uuid[])` RPC for atomic batch increment |
+| `009_import_review_queue.sql` | **Pending apply** | Enables `pg_trgm`; adds GIN trigram index on `hooks.hook_text`; creates `import_review_queue` table and `find_similar_hooks(query_text, threshold)` RPC |
 
 ---
 
