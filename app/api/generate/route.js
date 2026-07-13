@@ -135,7 +135,7 @@ async function fetchVisualPatterns(supabase, target_platform, keywords) {
 
   const { data: pool } = await supabase
     .from("visual_patterns")
-    .select("id, pattern_text, platform, category_pattern")
+    .select("id, pattern_text, platform, category_pattern, evidence_tier")
     .ilike("platform", `%${kw}%`)
     .order("id", { ascending: false })
     .limit(20);
@@ -175,7 +175,7 @@ function buildSystemPrompt(hooks, corpus, visualPatterns, targetDurationSec) {
   const visualBlock =
     visualPatterns.length > 0
       ? `\nVISUAL PATTERNS (platform-grounded visual direction — evidence labels indicate confidence level; treat as testable starting points, not proven formulas — shape the thumbnail description and script visual cues around one of these if relevant):\n${visualPatterns
-          .map((p, i) => `${i + 1}. [${p.category_pattern ?? "general"}] ${p.pattern_text}`)
+          .map((p, i) => `${i + 1}. [${p.category_pattern ?? "general"} — ${p.evidence_tier ?? "unclassified"}] ${p.pattern_text}`)
           .join("\n")}\n`
       : "";
 
@@ -356,7 +356,7 @@ export async function POST(request) {
   const openingBeat = script_segments[0]?.text ?? "";
   const visualCue =
     visualPatterns.length > 0
-      ? ` Visual instruction (${visualPatterns[0].category_pattern?.split('|')[0].trim() ?? 'pattern'}): ${visualPatterns[0].pattern_text?.slice(0, 120)}.`
+      ? ` Visual instruction (${visualPatterns[0].category_pattern ?? 'pattern'} — ${visualPatterns[0].evidence_tier ?? 'unclassified'}): ${visualPatterns[0].pattern_text?.slice(0, 120)}.`
       : " Cinematic, high-contrast, bold typography style.";
   const thumbnail_prompt = `${topTitle}. ${openingBeat.slice(0, 120)}.${visualCue}`;
 
