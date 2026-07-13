@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { tierColors } from "@/lib/tierColor";
 import { supabase } from "@/lib/supabaseClient";
 
 const PLATFORMS = [
@@ -218,6 +219,11 @@ function RunCard({ run, onUpdated }) {
                           <span style={{ ...mono, fontSize: "10px", color: "#7C8489", marginLeft: "8px" }}>
                             {h.source}
                           </span>
+                          {h.evidence_tier && (
+                            <span style={{ ...mono, fontSize: "10px", color: tierColors(h.evidence_tier).text, marginLeft: "8px" }}>
+                              {h.evidence_tier}
+                            </span>
+                          )}
                         </span>
                       </label>
                     );
