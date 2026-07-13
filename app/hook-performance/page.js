@@ -48,7 +48,7 @@ export default function HookPerformancePage() {
       // 1. Approved / published runs that have a selected hook
       const { data: runs, error: runsErr } = await supabase
         .from("pipeline_runs")
-        .select("id, selected_hook, selected_title, target_platform, status, created_at")
+        .select("id, selected_hook, selected_hook_tier, selected_title, target_platform, status, created_at")
         .in("status", ["approved", "published"])
         .not("selected_hook", "is", null)
         .order("created_at", { ascending: false });
@@ -56,15 +56,7 @@ export default function HookPerformancePage() {
       if (runsErr) { setError(runsErr.message); setLoading(false); return; }
       if (!runs?.length) { setRows([]); setLoading(false); return; }
 
-      // 2. All hooks — build a Map for exact-match lookup (hook_text → evidence_tier)
-      const { data: hooks } = await supabase
-        .from("hooks")
-        .select("hook_text, evidence_tier")
-        .limit(2000);
-
-      const hookMap = new Map((hooks ?? []).map((h) => [h.hook_text, h.evidence_tier]));
-
-      // 3. Analytics for these run IDs
+      // 2. Analytics for these run IDs
       const runIds = runs.map((r) => r.id);
       const { data: analytics } = await supabase
         .from("analytics")
@@ -84,12 +76,10 @@ export default function HookPerformancePage() {
         acc.entries += 1;
       }
 
-      // 4. Join and sort by tier rank
+      // 3. Join and sort by tier rank — tier comes directly from selected_hook_tier, not text-matched
       const joined = runs.map((run) => {
-        const exactMatch = hookMap.has(run.selected_hook);
-        const evidence_tier = exactMatch ? hookMap.get(run.selected_hook) : null;
         const perf = analyticsMap.get(run.id) ?? null;
-        return { ...run, evidence_tier, exactMatch, perf };
+        return { ...run, evidence_tier: run.selected_hook_tier ?? null, perf };
       });
 
       joined.sort((a, b) => tierRank(a.evidence_tier) - tierRank(b.evidence_tier));
@@ -164,22 +154,13 @@ export default function HookPerformancePage() {
                 ? new Date(row.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
                 : "—";
 
-              let tierLabel;
-              if (row.exactMatch && row.evidence_tier) {
-                tierLabel = (
-                  <span style={{ ...mono, fontSize: "11px", color: tc.text }}>
-                    {row.evidence_tier}
-                  </span>
-                );
-              } else if (row.exactMatch && !row.evidence_tier) {
-                tierLabel = (
-                  <span style={{ ...mono, fontSize: "11px", color: "#7C8489" }}>bank match, no tier</span>
-                );
-              } else {
-                tierLabel = (
-                  <span style={{ ...mono, fontSize: "11px", color: "#7C8489" }}>generated, no tier</span>
-                );
-              }
+              const tierLabel = row.evidence_tier ? (
+                <span style={{ ...mono, fontSize: "11px", color: tc.text }}>
+                  {row.evidence_tier}
+                </span>
+              ) : (
+                <span style={{ ...mono, fontSize: "11px", color: "#7C8489" }}>generated, no tier</span>
+              );
 
               let analyticsCell;
               if (!row.perf) {

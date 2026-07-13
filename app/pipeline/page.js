@@ -65,6 +65,7 @@ const labelStyle = {
 function RunCard({ run, onUpdated }) {
   const [expanded, setExpanded] = useState(false);
   const [selectedHook, setSelectedHook] = useState(run.selected_hook ?? "");
+  const [selectedHookTier, setSelectedHookTier] = useState(run.selected_hook_tier ?? null);
   const [selectedTitle, setSelectedTitle] = useState(run.selected_title ?? "");
   const [saving, setSaving] = useState(false);
 
@@ -86,7 +87,7 @@ function RunCard({ run, onUpdated }) {
   }
 
   async function saveSelections() {
-    await updateRun({ selected_hook: selectedHook, selected_title: selectedTitle });
+    await updateRun({ selected_hook: selectedHook, selected_hook_tier: selectedHookTier, selected_title: selectedTitle });
   }
 
   return (
@@ -211,7 +212,7 @@ function RunCard({ run, onUpdated }) {
                           name={`hook-${run.id}`}
                           value={val}
                           checked={checked}
-                          onChange={() => setSelectedHook(val)}
+                          onChange={() => { setSelectedHook(val); setSelectedHookTier(h.evidence_tier ?? null); }}
                           style={{ marginTop: "2px", flexShrink: 0 }}
                         />
                         <span>
@@ -290,7 +291,7 @@ function RunCard({ run, onUpdated }) {
               </button>
               {run.status === "draft" && (
                 <button
-                  onClick={() => updateRun({ status: "approved", selected_hook: selectedHook, selected_title: selectedTitle })}
+                  onClick={() => updateRun({ status: "approved", selected_hook: selectedHook, selected_hook_tier: selectedHookTier, selected_title: selectedTitle })}
                   disabled={saving}
                   style={{
                     ...mono,
