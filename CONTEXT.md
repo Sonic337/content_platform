@@ -42,11 +42,13 @@ An internal content-operations dashboard for a two-person AI content creator ope
 
 ### Design direction
 
-Ink-dark fixed theme (`#10151A` background, `#E8E6DE` foreground). Evidence-tier identity is communicated via 3px left-border color stripes on list rows (green = VERIFIED, amber = SOURCED/UNVERIFIED, red = NOT CONFIRMED), not badges. Body text in Fraunces serif; metadata in IBM Plex Mono. This is a deliberate choice tied to the evidence-graded research subject matter. Do not "improve" it toward generic SaaS styling without flagging that as a real design change, not a bug fix.
+Ink-dark fixed theme (`#10151A` background, `#E8E6DE` foreground). Evidence-tier identity is communicated via 3px left-border color stripes on list rows (green = VERIFIED, amber = SOURCED/UNVERIFIED, red = NOT CONFIRMED/REFUTED), not badges. Body text in Fraunces serif; metadata in IBM Plex Mono. This is a deliberate choice tied to the evidence-graded research subject matter. Do not "improve" it toward generic SaaS styling without flagging that as a real design change, not a bug fix.
 
 Color constants live in `lib/tierColor.js`:
 - `tierColors(evidenceTierStr)` → `{ border, text }` for hook evidence tiers
 - `topicStatusColors(statusStr)` → `{ border, text }` for topic statuses (new = green, reviewed = amber)
+
+Amber (`#D9A257` text / `#C98A3E` border) is also reused for the hook aging warning (times_used ≥ 5) to keep the palette consistent.
 
 ---
 
@@ -64,41 +66,69 @@ DataTable with filter by status, add-row form. Fields: title, summary, source_na
 
 **Status: built, real data.**
 
-117 rows imported from `master_hook_bank.xlsx` via Supabase CSV import. Schema matches the spreadsheet column-for-column (`hook_text`, `platform`, `category_pattern`, `creator_archetype`, `mechanism`, `evidence_tier`, `source_report`, `notes`). Evidence tier values (7 recognised tiers, migration 007 aligned the constraint): `VERIFIED 3-0`, `VERIFIED 2-1`, `SOURCED UNVERIFIED`, `NOT CONFIRMED`, `REFUTED`, `UNVERIFIED-OBSERVED`, `UNVERIFIED/MIXED`. Migration 007 also renames the old `SOURCED, UNVERIFIED` (comma-variant) rows to `SOURCED UNVERIFIED`.
+117 rows imported from `master_hook_bank.xlsx` via Supabase CSV import. Schema: `hook_text`, `platform`, `category_pattern`, `creator_archetype`, `mechanism`, `evidence_tier`, `source_report`, `notes`, `times_used` (int, default 0), `last_used_at` (timestamptz, nullable).
 
-The hook bank UI shows per-tier toggle buttons in the control bar (default view hides `NOT CONFIRMED` and `REFUTED`). Toggling a tier pill adds/removes it from the Supabase `.in()` filter so the DB query is always tight. Each row also displays `times_used` (e.g. "3×") and `last_used_at` in the meta line; `times_used ≥ 5` renders amber to flag potential overuse.
+**Evidence tier — 7 canonical values** (migration 007 replaced the original 4-value constraint and normalised all descriptive variants using LIKE-pattern UPDATEs):
 
-The pipeline's `fetchHooks()` fetches the top 40 by platform match, keyword-scores them across `category_pattern + hook_text + mechanism + notes`, sorts by score then VERIFIED tiebreaker, takes top 5, and backfills from any-platform VERIFIED hooks if needed. By default `NOT CONFIRMED` and `REFUTED` tiers are excluded. Pass `include_unverified: true` in the POST body to override. Every bank hook surfaced in a generated draft is atomically incremented via the `increment_hook_usage(uuid[])` Postgres function (migration 008).
+| Value | Stripe color |
+|---|---|
+| `VERIFIED 3-0` | Green |
+| `VERIFIED 2-1` | Green |
+| `SOURCED UNVERIFIED` | Amber |
+| `UNVERIFIED-OBSERVED` | Amber |
+| `UNVERIFIED/MIXED` | Amber |
+| `NOT CONFIRMED` | Red |
+| `REFUTED` | Red |
+
+**UI (Feature 1):** Per-tier toggle pills in the control bar. Default view excludes `NOT CONFIRMED` and `REFUTED`. Toggling a pill adds/removes it from the Supabase `.in()` filter — the query always reflects exact DB-side filtering, not client-side post-fetch filtering. Each row also shows `times_used` (e.g. `3×`) and `last_used_at` (locale date) in the meta line; `times_used ≥ 5` renders in amber to signal potential overuse.
+
+**Fetch and ranking in the pipeline:** `fetchHooks()` pulls the top 40 by platform match, keyword-scores across `category_pattern + hook_text + mechanism + notes`, sorts by score then VERIFIED tiebreaker, takes top 5, and backfills from any-platform VERIFIED hooks if needed. By default `NOT CONFIRMED` and `REFUTED` tiers are excluded via `.not('evidence_tier', 'in', ...)`. Pass `include_unverified: true` in the POST body to override.
+
+**Hook aging (Feature 2):** Every bank hook surfaced in a generated draft is atomically incremented via the `increment_hook_usage(uuid[])` Postgres function (migration 008), called after a successful `pipeline_runs` insert — non-fatal.
 
 ### Writing corpus (`app/corpus/page.js`, table: `corpus`)
 
-**Status: built, EMPTY.**
+**Status: import UI built; corpus content is 0 rows (confirmed 2026-07-13).**
 
-DataTable + bulk import panel (paste multiple pieces separated by `---` lines; title derived from first line ≤80 chars; all pieces inserted in one Supabase `.insert()` call). The `key={tableKey}` prop bump on DataTable forces a re-fetch after import.
+The page has two modes toggled by a control in the UI:
+- **Add row** — the standard DataTable add-row form for single entries.
+- **Bulk import** — paste multiple pieces separated by `---` delimiter lines. Each piece's title is derived from its first line (≤80 chars). A shared platform and comma-separated tags can be applied to the whole batch. All pieces are inserted in one Supabase `.insert([...])` call. A `key={tableKey}` prop bump on DataTable forces a re-fetch after import.
 
-**This is the single highest-priority gap.** The pipeline's `buildSystemPrompt()` includes a "VOICE & STYLE REFERENCE" block built from corpus samples. Until real past writing (captions, scripts, notes) is bulk-imported here, the AI has no actual voice grounding. This is a manual task for the human operator — paste past content into the bulk import UI.
+**This remains the highest-priority gap.** The pipeline's `buildSystemPrompt()` includes a "VOICE & STYLE REFERENCE" block built from corpus samples. With 0 rows the AI has no voice grounding. Filling this is a manual task — paste past captions, scripts, or notes into the bulk import UI.
 
 ### Pipeline (`app/pipeline/page.js`, `app/api/generate/route.js`, table: `pipeline_runs`)
 
 **Status: built and functional.**
 
-**UI:** Platform select (tiktok / instagram_reels / youtube_shorts / x / linkedin), optional duration input, optional topic link, Generate button. Runs are displayed as timestamped script beats (Fraunces serif for beat text, mono for timestamp + label). Hook and title selections are saveable. Approve → publishes the run (sets `status = 'published'`).
+**UI:** Platform select (tiktok / instagram_reels / youtube_shorts / x / linkedin), optional target duration in seconds, optional topic link, Generate button. Generated runs display script beats as a timestamped list (Fraunces serif for beat text, mono for `[start–end s] LABEL`). Runs that pre-date the `script_segments` column fall back to rendering the plain-text `script` field. Hook and title selections are saveable. Approve → publishes the run (sets `status = 'published'`).
 
 **Generation flow (`POST /api/generate`):**
+
 1. Extract keywords from `input_text` (stopword-filtered)
 2. Parallel fetch: `fetchHooks()`, `fetchCorpus()`, `fetchVisualPatterns()` — all keyword-ranked
-3. Build system prompt with HOOK BANK + VOICE & STYLE REFERENCE + VISUAL PATTERNS blocks
+3. Build system prompt with HOOK BANK (numbered 1–N with tier labels) + VOICE & STYLE REFERENCE + VISUAL PATTERNS blocks
 4. `claude-sonnet-5` → parse JSON response (separate try/catch from API call)
-5. Guard: do not insert if `script_segments`, `hook_options`, or `title_options` are missing
-6. Build `thumbnail_prompt` using top title + opening beat + top visual pattern (if any)
-7. `fal-ai/flux/dev` thumbnail generation (non-fatal — pipeline succeeds even if thumbnail fails)
-8. Insert `pipeline_runs` row
+5. Resolve `bank_index` → `evidence_tier` for each bank-sourced hook option; strip `bank_index` from final payload; collect bank hook UUIDs for usage tracking
+6. Guard: do not insert if `script_segments`, `hook_options`, or `title_options` are missing
+7. Build `thumbnail_prompt` using top title + opening beat + top visual pattern (if any)
+8. `fal-ai/flux/dev` thumbnail generation (non-fatal)
+9. Insert `pipeline_runs` row
+10. Call `increment_hook_usage(uuid[])` for bank hooks surfaced in this draft (non-fatal)
 
-**Response shape (Anthropic must return exactly this):**
+**Request body params:**
+- `input_text` (required), `target_platform` (required)
+- `target_duration_sec` (optional integer) — passed to the system prompt to constrain segment timing
+- `topic_id` (optional uuid)
+- `include_unverified` (optional boolean, default `false`) — when `true`, includes `NOT CONFIRMED` and `REFUTED` hooks in `fetchHooks()` results
+
+**Response shape (Anthropic must return exactly this; route resolves bank_index before storing):**
 ```json
 {
   "script_segments": [{"start_sec": 0, "end_sec": 5, "label": "hook", "text": "..."}],
-  "hook_options": [{"hook_text": "...", "source": "bank"}],
+  "hook_options": [
+    {"hook_text": "...", "source": "bank", "evidence_tier": "VERIFIED 3-0"},
+    {"hook_text": "...", "source": "generated"}
+  ],
   "title_options": ["...", "...", "..."]
 }
 ```
@@ -115,9 +145,9 @@ Used by `fetchVisualPatterns()` in the generate route to ground thumbnail prompt
 
 ### Analytics (`app/analytics/page.js`, table: `analytics`)
 
-**Status: built, no data yet.**
+**Status: built, 0 rows.**
 
-DataTable with filter by platform, add-row form. Columns displayed: platform, views, likes, comments, posted_at. Full form fields: platform, post_url, posted_at, views, likes, comments, shares, saves, avg_watch_time_sec, retention_pct (all numeric — coerced via `DataTable`'s `numeric` field type), notes, plus a pipeline_run_id selector (fetches last 20 runs, labeled by `selected_title` or first 60 chars of script). `pipeline_run_id` is optional/nullable.
+DataTable with filter by platform, add-row form. Columns displayed: platform, views, likes, comments, posted_at. Full form fields: platform, post_url, posted_at, views, likes, comments, shares, saves, avg_watch_time_sec, retention_pct (all numeric — coerced via `DataTable`'s `numeric` field type), notes, plus a pipeline_run_id selector (fetches last 20 runs, labeled by `selected_title` or first 60 chars of script). `pipeline_run_id` is optional/nullable and is passed as a **uuid string** — do not coerce to `Number()` (that would produce `NaN`; the column is uuid, not bigint).
 
 ---
 
@@ -131,11 +161,13 @@ DataTable with filter by platform, add-row form. Columns displayed: platform, vi
 | `ANTHROPIC_API_KEY` | `app/api/generate/route.js` only | Anthropic API key — server-only |
 | `FAL_KEY` | `app/api/generate/route.js` only | fal.ai API key — server-only |
 
+All live values are in `.env.local` (gitignored). No `.env`, `.env.production`, or `.env.development` files exist; `.env.local` is the only env file and Next.js dev mode loads it exclusively.
+
 ---
 
 ## 5. Known gaps (priority order)
 
-1. **Corpus is empty** — No voice/style grounding for the pipeline until the human bulk-imports real past writing via the corpus page. Everything else is blocked on this for quality output.
+1. **Corpus content is empty (0 rows)** — Bulk import UI is built and working; the gap is the human operator pasting real past writing (captions, scripts, notes) into it. Until that happens the AI has no voice grounding and `buildSystemPrompt()` sends an empty VOICE & STYLE REFERENCE block.
 
 2. **Visual patterns table is empty** — Thumbnail grounding falls back to a generic "cinematic, high-contrast" prompt. Unblocked by the pending visual pattern research report (see §6).
 
@@ -148,6 +180,8 @@ DataTable with filter by platform, add-row form. Columns displayed: platform, vi
 6. **No embeddings** — Vector columns exist on `hooks`, `corpus`, `topics`. Semantic search is deferred; keyword ranking is the current retrieval strategy.
 
 7. **RLS is open** — `for all using (true)` policies are appropriate for single-team alpha. Tighten before granting external agent write access.
+
+8. **Migrations 007 and 008 pending apply** — Both are committed to the repo but have not yet been run against the live Supabase database. The app will behave incorrectly until they are applied (hooks tier filter will fail to match old comma-variant rows; usage tracking columns won't exist). Apply both in the Supabase SQL editor in order.
 
 ---
 
@@ -168,13 +202,16 @@ Four research reports commissioned via Claude Opus deep research, not yet return
 
 `components/DataTable.js` is a generic shared component used by all five module pages. Key behaviors:
 
-- Fetches its own data on mount (and on `filterValue` change) using the browser Supabase client
+- Fetches its own data on mount (and when filter state changes) using the browser Supabase client
 - `key` prop bump on the parent forces remount + re-fetch (used by corpus bulk import)
 - `extraPayload = {}` prop is merged into the insert payload (used by analytics to inject `pipeline_run_id`)
 - Field types in `formFields`: `text`, `textarea`, `select` (needs `options: []`), `tags` (comma-separated string → array on submit), `numeric` (`<input type="number">` → `Number()` coercion on submit)
 - `bodyKey`: column rendered as Fraunces serif body text
 - `tierKey`: column rendered with `getRowColors(row).text` accent color
 - `getRowColors(row)`: function returning `{ border, text }` for the 3px left stripe and tier text
+- `tierFilterKey` + `allTierOptions` + `defaultExcludedTiers`: wire up the tier-toggle pill filter; query uses `.in(tierFilterKey, includedTiers)` so filtering is DB-side
+- `usageKey` + `usageWarnAt` (default 5): when a meta column's key matches `usageKey` and its raw numeric value is ≥ `usageWarnAt`, the value renders in amber (`#D9A257`) instead of muted gray
+- `columns[].format`: optional `(rawVal) => string` function; if provided, used instead of `String(rawVal)` for display. Raw value is still used for the `usageKey` threshold comparison.
 
 ---
 
@@ -189,5 +226,15 @@ All migrations in `supabase/migrations/` are **reference only** after they've be
 | `004_script_segments.sql` | Applied, no file | Adds `script_segments jsonb` column to `pipeline_runs` |
 | `005_visual_patterns.sql` | Applied, no file | Creates `visual_patterns` table |
 | `006_analytics.sql` | Applied | Creates `analytics` table with optional `pipeline_run_id` FK |
-| `007_hooks_tier_constraint.sql` | **Pending apply** | Drops old 4-value check constraint, migrates `SOURCED, UNVERIFIED` → `SOURCED UNVERIFIED`, adds 7-value constraint |
-| `008_hook_usage_tracking.sql` | **Pending apply** | Adds `times_used` (int, default 0) and `last_used_at` (timestamptz) to `hooks`; creates `increment_hook_usage(uuid[])` RPC |
+| `007_hooks_tier_constraint.sql` | **Pending apply** | Drops old 4-value check constraint; LIKE-pattern UPDATEs normalise all descriptive variants to 7 canonical tier values; re-adds constraint inside a DO block (idempotent) |
+| `008_hook_usage_tracking.sql` | **Pending apply** | Adds `times_used` (int, default 0, not null) and `last_used_at` (timestamptz) to `hooks`; creates `increment_hook_usage(uuid[])` RPC for atomic batch increment |
+
+---
+
+## 9. Operational findings
+
+Things learned in practice that aren't derivable from the code but are worth preserving for future sessions.
+
+**Supabase SQL editor silent failure:** The SQL editor has intermittently reported "Success, no rows returned" for write statements that did not actually commit. Pairing a write with a verifying `SELECT` in the same execution (e.g. `UPDATE ...; SELECT count(*) FROM hooks WHERE evidence_tier = 'SOURCED UNVERIFIED';`) reliably surfaces the true state. Do not trust "Success" alone for schema changes or data migrations.
+
+**Hook bank text fields contain descriptive suffixes:** The original `master_hook_bank.xlsx` data has evidence_tier values like `NOT CONFIRMED (0-3)`, `VERIFIED 3-0 across multiple niches`, `REFUTED 10/10`, etc. Migration 007 handles this with LIKE-pattern UPDATEs. The same pattern may apply to other text columns (`category_pattern`, `mechanism`, `creator_archetype`) — verify before assuming exact-match filtering will work on any column sourced from the original spreadsheet.
