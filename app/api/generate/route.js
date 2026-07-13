@@ -157,7 +157,7 @@ async function fetchVisualPatterns(supabase, target_platform, keywords) {
   return scored.slice(0, 5);
 }
 
-function buildSystemPrompt(hooks, corpus, visualPatterns, targetDurationSec) {
+function buildSystemPrompt(hooks, corpus, visualPatterns, targetDurationSec, includeUnverified = false) {
   const hookBlock = hooks
     .map(
       (h, i) =>
@@ -204,11 +204,23 @@ INSTRUCTIONS:
   Each beat should be concise — a few sentences at most, not a paragraph.
 - The FIRST segment (label "hook") must read like one of the grounding hook examples above: punchy, direct, no generic intro. It IS the hook.
 - Beat labels should reflect their scaffold function: hook, context, proof, demo, result, limitation, pivot, cta, etc.
-- Produce 4-5 hook_options: a mix of bank hooks adapted to this specific topic (source: "bank") and 1-2 newly generated hooks in the same voice as the corpus (source: "generated").
-  For bank hooks, include bank_index: the 1-based number of the hook from the HOOK BANK list above (e.g. bank_index: 2 if you adapted hook #2). For generated hooks omit bank_index entirely.
+- Produce hook_options as a JSON OBJECT with exactly three keys: "conservative", "mixed", "experimental". Each is an array of hook entries adapted to this specific topic and platform.
+
+  "conservative" (2-3 hooks): Pull ONLY from bank hooks labeled [VERIFIED 3-0] or [VERIFIED 2-1] in the HOOK BANK above. If fewer than 2 such hooks exist in the bank, fill with [SOURCED UNVERIFIED] as fallback — do not leave the group empty.
+
+  "mixed" (2-3 bank hooks + 1 generated): Pull bank hooks from any tier in the bank EXCEPT [NOT CONFIRMED] and [REFUTED]. Include exactly 1 freshly generated hook in the same voice as the corpus samples.
+
+  "experimental" (${includeUnverified
+    ? "2-3 bank hooks that MAY include [UNVERIFIED/MIXED] or [NOT CONFIRMED] tiers, plus 1-2 freshly generated hooks with bolder or higher-stakes framing than the mixed group."
+    : "generated hooks only — the include_unverified flag is off so no low-confidence bank hooks are included here. Include 1-2 freshly generated hooks with bolder framing."})
+
+  For every hook entry:
+  - Bank hooks: { "hook_text": "...", "source": "bank", "bank_index": N } where N is the 1-based number from the HOOK BANK list. Adapt the hook text to this specific topic — the bank_index tells which bank entry you drew from.
+  - Generated hooks: { "hook_text": "...", "source": "generated" } — no bank_index field.
+
 - Produce exactly 3 title_options.
 - Return ONLY a JSON object with this exact shape — no prose, no markdown, no code fences:
-{"script_segments":[{"start_sec":0,"end_sec":5,"label":"hook","text":"..."},{"start_sec":5,"end_sec":12,"label":"context","text":"..."}],"hook_options":[{"hook_text":"...","source":"bank","bank_index":1},{"hook_text":"...","source":"generated"}],"title_options":["...","...","..."]}`;
+{"script_segments":[{"start_sec":0,"end_sec":5,"label":"hook","text":"..."},{"start_sec":5,"end_sec":12,"label":"context","text":"..."}],"hook_options":{"conservative":[{"hook_text":"...","source":"bank","bank_index":2}],"mixed":[{"hook_text":"...","source":"bank","bank_index":1},{"hook_text":"...","source":"generated"}],"experimental":[{"hook_text":"...","source":"generated"}]},"title_options":["...","...","..."]}`;
 }
 
 async function callAnthropic(systemPrompt, input_text, target_platform) {
@@ -216,7 +228,7 @@ async function callAnthropic(systemPrompt, input_text, target_platform) {
 
   const msg = await client.messages.create({
     model: "claude-sonnet-5",
-    max_tokens: 2048,
+    max_tokens: 3072,
     system: systemPrompt,
     messages: [
       {
@@ -295,7 +307,7 @@ export async function POST(request) {
   // Call Anthropic
   let rawResponse;
   try {
-    const systemPrompt = buildSystemPrompt(hooks, corpus, visualPatterns, target_duration_sec ?? null);
+    const systemPrompt = buildSystemPrompt(hooks, corpus, visualPatterns, target_duration_sec ?? null, include_unverified === true);
     rawResponse = await callAnthropic(systemPrompt, input_text, target_platform);
   } catch (err) {
     return Response.json(
@@ -317,20 +329,29 @@ export async function POST(request) {
 
   const { script_segments, title_options } = aiResult;
 
-  // Resolve bank_index → evidence_tier for bank-sourced hooks, then strip bank_index.
+  // Resolve bank_index → evidence_tier across all three hook groups, strip bank_index.
   // Collect IDs of bank hooks surfaced so usage stats can be incremented after insert.
   const bankHookIds = [];
-  const hook_options = (aiResult.hook_options || []).map((h) => {
+
+  function resolveHookEntry(h) {
     if (h.source === "bank" && typeof h.bank_index === "number") {
       const source_hook = hooks[h.bank_index - 1];
       if (source_hook?.id) bankHookIds.push(source_hook.id);
       const { bank_index, ...rest } = h;
       return { ...rest, evidence_tier: source_hook?.evidence_tier ?? null };
     }
-    // generated hooks: ensure no bank_index leaks through, evidence_tier omitted
     const { bank_index, ...rest } = h;
     return rest;
-  });
+  }
+
+  const rawGroups = aiResult.hook_options;
+  const hook_options = rawGroups && !Array.isArray(rawGroups) && typeof rawGroups === "object"
+    ? {
+        conservative: (rawGroups.conservative ?? []).map(resolveHookEntry),
+        mixed:        (rawGroups.mixed        ?? []).map(resolveHookEntry),
+        experimental: (rawGroups.experimental ?? []).map(resolveHookEntry),
+      }
+    : { conservative: [], mixed: (rawGroups ?? []).map(resolveHookEntry), experimental: [] }; // legacy flat fallback
 
   // Guard: do not insert a row with empty generation data
   if (!script_segments || !aiResult.hook_options || !title_options) {

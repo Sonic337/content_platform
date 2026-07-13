@@ -70,7 +70,17 @@ function RunCard({ run, onUpdated }) {
   const [saving, setSaving] = useState(false);
 
   const colors = statusColors(run.status);
-  const hooks = Array.isArray(run.hook_options) ? run.hook_options : [];
+  // Support both old flat-array shape and new three-group object shape
+  const hookGroups = (() => {
+    const ho = run.hook_options;
+    if (!ho) return { conservative: [], mixed: [], experimental: [] };
+    if (Array.isArray(ho)) return { conservative: [], mixed: ho, experimental: [] };
+    return {
+      conservative: ho.conservative ?? [],
+      mixed:        ho.mixed        ?? [],
+      experimental: ho.experimental ?? [],
+    };
+  })();
   const titles = Array.isArray(run.title_options) ? run.title_options : [];
   const displayTitle = run.selected_title || titles[0] || run.input_text?.slice(0, 80) || "Untitled";
 
@@ -186,50 +196,66 @@ function RunCard({ run, onUpdated }) {
               )}
             </div>
 
-            {/* Hook options */}
-            {hooks.length > 0 && (
+            {/* Hook options — three risk tiers */}
+            {(hookGroups.conservative.length > 0 || hookGroups.mixed.length > 0 || hookGroups.experimental.length > 0) && (
               <div style={{ marginBottom: "20px" }}>
                 <div style={labelStyle}>Hook options — select one</div>
-                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                  {hooks.map((h, i) => {
-                    const val = h.hook_text;
-                    const checked = selectedHook === val;
-                    return (
-                      <label
-                        key={i}
-                        style={{
-                          display: "flex",
-                          gap: "10px",
-                          alignItems: "flex-start",
-                          cursor: "pointer",
-                          padding: "8px 10px",
-                          border: `1px solid ${checked ? "#C98A3E" : "#232B31"}`,
-                          borderRadius: "2px",
-                        }}
-                      >
-                        <input
-                          type="radio"
-                          name={`hook-${run.id}`}
-                          value={val}
-                          checked={checked}
-                          onChange={() => { setSelectedHook(val); setSelectedHookTier(h.evidence_tier ?? null); }}
-                          style={{ marginTop: "2px", flexShrink: 0 }}
-                        />
-                        <span>
-                          <span style={{ ...serif, fontSize: "13px", color: "#E8E6DE" }}>{val}</span>
-                          <span style={{ ...mono, fontSize: "10px", color: "#7C8489", marginLeft: "8px" }}>
-                            {h.source}
-                          </span>
-                          {h.evidence_tier && (
-                            <span style={{ ...mono, fontSize: "10px", color: tierColors(h.evidence_tier).text, marginLeft: "8px" }}>
-                              {h.evidence_tier}
-                            </span>
-                          )}
-                        </span>
-                      </label>
-                    );
-                  })}
-                </div>
+                {[
+                  { key: "conservative", label: "Conservative", accent: "#4C9A6A" },
+                  { key: "mixed",        label: "Mixed",        accent: "#C98A3E" },
+                  { key: "experimental", label: "Experimental", accent: "#B4483F" },
+                ].map(({ key, label, accent }) => {
+                  const group = hookGroups[key];
+                  if (!group.length) return null;
+                  return (
+                    <div key={key} style={{ marginBottom: "12px" }}>
+                      <div style={{ ...mono, fontSize: "9px", color: accent, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "6px", paddingLeft: "2px" }}>
+                        {label}
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                        {group.map((h, i) => {
+                          const val = h.hook_text;
+                          const checked = selectedHook === val;
+                          return (
+                            <label
+                              key={i}
+                              style={{
+                                display: "flex",
+                                gap: "10px",
+                                alignItems: "flex-start",
+                                cursor: "pointer",
+                                padding: "8px 10px",
+                                borderLeft: `3px solid ${checked ? accent : "#232B31"}`,
+                                border: `1px solid ${checked ? accent : "#232B31"}`,
+                                borderRadius: "2px",
+                              }}
+                            >
+                              <input
+                                type="radio"
+                                name={`hook-${run.id}`}
+                                value={val}
+                                checked={checked}
+                                onChange={() => { setSelectedHook(val); setSelectedHookTier(h.evidence_tier ?? null); }}
+                                style={{ marginTop: "2px", flexShrink: 0 }}
+                              />
+                              <span>
+                                <span style={{ ...serif, fontSize: "13px", color: "#E8E6DE" }}>{val}</span>
+                                <span style={{ ...mono, fontSize: "10px", color: "#7C8489", marginLeft: "8px" }}>
+                                  {h.source}
+                                </span>
+                                {h.evidence_tier && (
+                                  <span style={{ ...mono, fontSize: "10px", color: tierColors(h.evidence_tier).text, marginLeft: "8px" }}>
+                                    {h.evidence_tier}
+                                  </span>
+                                )}
+                              </span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
 
