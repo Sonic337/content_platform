@@ -66,9 +66,9 @@ DataTable with filter by status, add-row form. Fields: title, summary, source_na
 
 117 rows imported from `master_hook_bank.xlsx` via Supabase CSV import. Schema matches the spreadsheet column-for-column (`hook_text`, `platform`, `category_pattern`, `creator_archetype`, `mechanism`, `evidence_tier`, `source_report`, `notes`). Evidence tier values (7 recognised tiers, migration 007 aligned the constraint): `VERIFIED 3-0`, `VERIFIED 2-1`, `SOURCED UNVERIFIED`, `NOT CONFIRMED`, `REFUTED`, `UNVERIFIED-OBSERVED`, `UNVERIFIED/MIXED`. Migration 007 also renames the old `SOURCED, UNVERIFIED` (comma-variant) rows to `SOURCED UNVERIFIED`.
 
-The hook bank UI shows per-tier toggle buttons in the control bar (default view hides `NOT CONFIRMED` and `REFUTED`). Toggling a tier pill adds/removes it from the Supabase `.in()` filter so the DB query is always tight.
+The hook bank UI shows per-tier toggle buttons in the control bar (default view hides `NOT CONFIRMED` and `REFUTED`). Toggling a tier pill adds/removes it from the Supabase `.in()` filter so the DB query is always tight. Each row also displays `times_used` (e.g. "3×") and `last_used_at` in the meta line; `times_used ≥ 5` renders amber to flag potential overuse.
 
-The pipeline's `fetchHooks()` fetches the top 40 by platform match, keyword-scores them across `category_pattern + hook_text + mechanism + notes`, sorts by score then VERIFIED tiebreaker, takes top 5, and backfills from any-platform VERIFIED hooks if needed. By default `NOT CONFIRMED` and `REFUTED` tiers are excluded. Pass `include_unverified: true` in the POST body to override.
+The pipeline's `fetchHooks()` fetches the top 40 by platform match, keyword-scores them across `category_pattern + hook_text + mechanism + notes`, sorts by score then VERIFIED tiebreaker, takes top 5, and backfills from any-platform VERIFIED hooks if needed. By default `NOT CONFIRMED` and `REFUTED` tiers are excluded. Pass `include_unverified: true` in the POST body to override. Every bank hook surfaced in a generated draft is atomically incremented via the `increment_hook_usage(uuid[])` Postgres function (migration 008).
 
 ### Writing corpus (`app/corpus/page.js`, table: `corpus`)
 
@@ -190,3 +190,4 @@ All migrations in `supabase/migrations/` are **reference only** after they've be
 | `005_visual_patterns.sql` | Applied, no file | Creates `visual_patterns` table |
 | `006_analytics.sql` | Applied | Creates `analytics` table with optional `pipeline_run_id` FK |
 | `007_hooks_tier_constraint.sql` | **Pending apply** | Drops old 4-value check constraint, migrates `SOURCED, UNVERIFIED` → `SOURCED UNVERIFIED`, adds 7-value constraint |
+| `008_hook_usage_tracking.sql` | **Pending apply** | Adds `times_used` (int, default 0) and `last_used_at` (timestamptz) to `hooks`; creates `increment_hook_usage(uuid[])` RPC |

@@ -4,15 +4,17 @@ import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 /**
- * columns:             [{ key, label, width? }]
- * filterKey:           column name used for the quick filter dropdown (optional)
- * formFields:          [{ key, label, type: "text" | "textarea" | "select", options? }]
- * bodyKey:             column key whose value renders as the serif body text
- * tierKey:             column key that receives accent color treatment in meta row
- * getRowColors:        (row) => { border: string, text: string } — left stripe + tier text colors
- * tierFilterKey:       column name to use for multi-select tier toggle filter (optional)
- * allTierOptions:      array of all possible tier strings for tierFilterKey (required when tierFilterKey is set)
+ * columns:              [{ key, label, format?: (rawVal) => string }]
+ * filterKey:            column name used for the quick filter dropdown (optional)
+ * formFields:           [{ key, label, type: "text" | "textarea" | "select" | "numeric" | "tags", options? }]
+ * bodyKey:              column key whose value renders as the serif body text
+ * tierKey:              column key that receives accent color treatment in meta row
+ * getRowColors:         (row) => { border: string, text: string } — left stripe + tier text colors
+ * tierFilterKey:        column name to use for multi-select tier toggle filter (optional)
+ * allTierOptions:       array of all possible tier strings for tierFilterKey (required when tierFilterKey is set)
  * defaultExcludedTiers: tier strings excluded from view on first load (default [])
+ * usageKey:             column key whose numeric value is checked for the overuse warning (optional)
+ * usageWarnAt:          threshold at or above which usageKey value renders amber (default 5)
  */
 export default function DataTable({
   table,
@@ -26,6 +28,8 @@ export default function DataTable({
   tierFilterKey,
   allTierOptions = [],
   defaultExcludedTiers = [],
+  usageKey,
+  usageWarnAt = 5,
 }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -50,8 +54,6 @@ export default function DataTable({
         setLoading(false);
         return;
       }
-      console.log("[DataTable] excludedTiers:", [...excludedTiers]);
-      console.log("[DataTable] included:", included);
       query = query.in(tierFilterKey, included);
     }
     const { data, error } = await query;
@@ -411,16 +413,26 @@ export default function DataTable({
                     }}
                   >
                     {metaCols.map((col) => {
-                      const val = Array.isArray(row[col.key])
-                        ? row[col.key].join(", ")
-                        : String(row[col.key] ?? "");
+                      const rawVal = row[col.key];
+                      const val = col.format
+                        ? col.format(rawVal)
+                        : Array.isArray(rawVal)
+                          ? rawVal.join(", ")
+                          : String(rawVal ?? "");
                       if (!val || val === "null") return null;
                       const isAccent = col.key === tierKey;
+                      const isOverused =
+                        usageKey &&
+                        col.key === usageKey &&
+                        typeof rawVal === "number" &&
+                        rawVal >= usageWarnAt;
+                      const textColor = isAccent
+                        ? colors.text
+                        : isOverused
+                          ? "#D9A257"
+                          : "#7C8489";
                       return (
-                        <span
-                          key={col.key}
-                          style={{ color: isAccent ? colors.text : "#7C8489" }}
-                        >
+                        <span key={col.key} style={{ color: textColor }}>
                           {val}
                         </span>
                       );

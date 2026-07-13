@@ -310,10 +310,13 @@ export async function POST(request) {
 
   const { script_segments, title_options } = aiResult;
 
-  // Resolve bank_index → evidence_tier for bank-sourced hooks, then strip bank_index
+  // Resolve bank_index → evidence_tier for bank-sourced hooks, then strip bank_index.
+  // Collect IDs of bank hooks surfaced so usage stats can be incremented after insert.
+  const bankHookIds = [];
   const hook_options = (aiResult.hook_options || []).map((h) => {
     if (h.source === "bank" && typeof h.bank_index === "number") {
       const source_hook = hooks[h.bank_index - 1];
+      if (source_hook?.id) bankHookIds.push(source_hook.id);
       const { bank_index, ...rest } = h;
       return { ...rest, evidence_tier: source_hook?.evidence_tier ?? null };
     }
@@ -378,6 +381,12 @@ export async function POST(request) {
 
   if (insertError) {
     return Response.json({ error: insertError.message }, { status: 500 });
+  }
+
+  // Increment usage stats for every bank hook surfaced in this draft — non-fatal
+  if (bankHookIds.length > 0) {
+    const { error: usageErr } = await supabase.rpc("increment_hook_usage", { hook_ids: bankHookIds });
+    if (usageErr) console.warn("[generate] hook usage update failed (non-fatal):", usageErr.message);
   }
 
   return Response.json(row);

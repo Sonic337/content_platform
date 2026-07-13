@@ -49,11 +49,19 @@ export default function HooksPage() {
         tierFilterKey="evidence_tier"
         allTierOptions={ALL_EVIDENCE_TIERS}
         defaultExcludedTiers={DEFAULT_EXCLUDED_TIERS}
+        usageKey="times_used"
+        usageWarnAt={5}
         columns={[
           { key: "hook_text", label: "Hook" },
           { key: "platform", label: "Platform" },
           { key: "category_pattern", label: "Category" },
           { key: "evidence_tier", label: "Evidence" },
+          { key: "times_used", label: "Used", format: (v) => `${v ?? 0}×` },
+          {
+            key: "last_used_at",
+            label: "Last used",
+            format: (v) => v ? new Date(v).toLocaleDateString() : "",
+          },
         ]}
         formFields={[
           { key: "hook_text", label: "Hook text", type: "textarea" },
