@@ -4,7 +4,7 @@
 
 # Content Ops Platform — Project State
 
-_Last updated: 2026-07-13 (session 2)_
+_Last updated: 2026-07-13 (session 3)_
 
 ## Before you start
 
@@ -86,6 +86,8 @@ DataTable with filter by status, add-row form. Fields: title, summary, source_na
 
 **Hook aging (Feature 2):** Every bank hook surfaced in a generated draft is atomically incremented via the `increment_hook_usage(uuid[])` Postgres function (migration 008), called after a successful `pipeline_runs` insert — non-fatal.
 
+**Per-platform hook transformer (Feature 6):** A "Transform for platform" control appears in the footer of each row on `/hooks`. Selecting a platform and clicking Transform calls `POST /api/transform-hook` with `{ hook_id, target_platform }`. The route checks the `hook_transforms` table (migration 013) for a cached result first; on a cache miss it calls `claude-sonnet-5` with a platform-specific brief and inserts the result. A "Re-run" button (shown after any result is present) forces a fresh generation, bypassing the DB cache. Platform briefs distinguish written-to-be-read formats (X, LinkedIn) from spoken-aloud formats (TikTok, Reels, Shorts). The route file is `app/api/transform-hook/route.js`; it uses the service-role client because it writes to `hook_transforms`. `times_used` is NOT incremented by transforms — only by generation drafts surfacing a hook.
+
 ### Writing corpus (`app/corpus/page.js`, table: `corpus`)
 
 **Status: import UI built; corpus content is 0 rows (confirmed live query 2026-07-13).**
@@ -100,7 +102,13 @@ The page has two modes toggled by a control in the UI:
 
 **Status: built and functional.**
 
-**UI:** Platform select (tiktok / instagram_reels / youtube_shorts / x / linkedin), optional target duration in seconds, optional topic link, Generate button. Generated runs display script beats as a timestamped list (Fraunces serif for beat text, mono for `[start–end s] LABEL`). Runs that pre-date the `script_segments` column fall back to rendering the plain-text `script` field. Hook and title selections are saveable. Approve → publishes the run (sets `status = 'published'`).
+**UI:** Platform select (tiktok / instagram_reels / youtube_shorts / x / linkedin), optional target duration in seconds, optional topic link, Generate button. Generated runs display script beats as a timestamped list (Fraunces serif for beat text, mono for `[start–end s] LABEL`). Runs that pre-date the `script_segments` column fall back to rendering the plain-text `script` field.
+
+Hook options render as three visually separated sections — **Conservative / Mixed / Experimental** — each with its own accent color (green / amber / red). A single `selectedHook` state covers all three groups; only one hook can be selected across them. Each hook option displays its `evidence_tier` inline, color-coded via `tierColors()`.
+
+**Approve button fix:** Clicking Approve atomically saves `selected_hook`, `selected_hook_tier`, and `selected_title` in the same DB write as the `status: "approved"` change. Previously these were two separate writes (Save selections + Approve), which silently dropped selections if Approve was clicked first.
+
+`selected_hook_tier` (migration 012) is saved at approval time from the resolved hook entry's `evidence_tier`. This is necessary because bank hooks are AI-adapted/paraphrased before being shown for selection — exact text-matching against the original `hooks.hook_text` after the fact would always fail.
 
 **Generation flow (`POST /api/generate`):**
 
@@ -125,23 +133,41 @@ The page has two modes toggled by a control in the UI:
 ```json
 {
   "script_segments": [{"start_sec": 0, "end_sec": 5, "label": "hook", "text": "..."}],
-  "hook_options": [
-    {"hook_text": "...", "source": "bank", "evidence_tier": "VERIFIED 3-0"},
-    {"hook_text": "...", "source": "generated"}
-  ],
+  "hook_options": {
+    "conservative": [{"hook_text": "...", "source": "bank", "evidence_tier": "VERIFIED 3-0"}],
+    "conservative_note": "Only 0 truly VERIFIED hooks available; included tiers: SOURCED UNVERIFIED as fallback.",
+    "mixed": [{"hook_text": "...", "source": "bank", "evidence_tier": "UNVERIFIED-OBSERVED"}, {"hook_text": "...", "source": "generated"}],
+    "experimental": [{"hook_text": "...", "source": "generated"}]
+  },
   "title_options": ["...", "...", "..."]
 }
 ```
+
+**Hook tier groups and rules:**
+- `conservative` (2–3 hooks): VERIFIED 3-0 or VERIFIED 2-1 only. Fallback order: VERIFIED 3-0 → VERIFIED 2-1 → SOURCED UNVERIFIED only. Never reaches UNVERIFIED-OBSERVED or lower. Acceptable to have fewer than 2 hooks rather than go lower.
+- `mixed` (2–3 bank + 1 generated): any tier except NOT CONFIRMED / REFUTED.
+- `experimental` (1–3 hooks): generated-only when `include_unverified: false`; may include UNVERIFIED/MIXED or lower bank hooks when `include_unverified: true`.
+- `conservative_note`: **server-computed**, never model-generated. Set when `conservative` is empty ("No hooks at VERIFIED or SOURCED UNVERIFIED tier were relevant to this topic — none included.") or when fallback tiers were used ("Only N truly VERIFIED hook(s) available; included tiers: [actual tiers] as fallback."). Derived from the actual `evidence_tier` values after `resolveHookEntry()` runs, so it's structurally impossible for it to misreport.
+
+**Backward compatibility:** Old `pipeline_runs` rows have `hook_options` as a flat array. Read paths in `app/pipeline/page.js` and `app/hook-performance/page.js` detect `Array.isArray()` and normalize to `{ conservative: [], mixed: oldArray, experimental: [] }`.
 
 `script` (plain-text concatenation of all segments) is also stored as a fallback/search field.
 
 **Schema note:** `pipeline_runs.topic_id` references `topics.id` but `topics` uses `uuid` PK and `pipeline_runs` was created with `bigint` FK — this mismatch exists in the live DB. Currently nullable so it doesn't block inserts (topic linking not wired in the UI yet).
 
+### Hook performance audit (`app/hook-performance/page.js`)
+
+**Status: built, read-only.**
+
+A post-hoc audit view joining `pipeline_runs` (approved/published) to `analytics` via `pipeline_run_id`. Shows each approved run's selected hook, its `selected_hook_tier` (read directly from the column — no text-matching), and aggregated engagement metrics (views, likes, comments) where analytics rows exist. Gives a longitudinal view of which evidence tiers produce better-performing content.
+
+`selected_hook_tier` is available directly on `pipeline_runs` because it was saved at approval time (migration 012). Prior to migration 012, the hook tier had to be re-derived by text-matching `selected_hook` against `hooks.hook_text` — this was broken in practice because bank hooks are adapted/paraphrased by the AI before appearing for selection.
+
 ### Visual patterns (table: `visual_patterns`)
 
-**Status: table exists, EMPTY.**
+**Status: 8 rows seeded from research reports.**
 
-Used by `fetchVisualPatterns()` in the generate route to ground thumbnail prompts and script visual cues. Migration 005 (reference only, already applied) adds this table. Will be seeded from the pending thumbnail/visual pattern research report.
+Used by `fetchVisualPatterns()` in the generate route to ground thumbnail prompts and script visual cues. Migration 005 (reference only, already applied) adds this table. 8 rows were seeded in session 2 from the visual pattern research report. Each row has `pattern_text`, `platform`, `category_pattern`, and `evidence_tier`.
 
 ### Analytics (`app/analytics/page.js`, table: `analytics`)
 
@@ -169,7 +195,7 @@ All live values are in `.env.local` (gitignored). No `.env`, `.env.production`, 
 
 1. **Corpus content is empty (0 rows)** — Bulk import UI is built and working; the gap is the human operator pasting real past writing (captions, scripts, notes) into it. Until that happens the AI has no voice grounding and `buildSystemPrompt()` sends an empty VOICE & STYLE REFERENCE block.
 
-2. **Visual patterns table is empty** — Thumbnail grounding falls back to a generic "cinematic, high-contrast" prompt. Unblocked by the pending visual pattern research report (see §6).
+2. ~~**Visual patterns table is empty**~~ — 8 rows seeded from research reports. Thumbnail grounding is now active for matching topics.
 
 3. **Topics table is manually seeded** — No live signal from Hermes yet. Deferred by design until the pipeline is stable and the Hermes integration is scoped.
 
@@ -189,16 +215,17 @@ All live values are in `.env.local` (gitignored). No `.env`, `.env.production`, 
 
 ---
 
-## 6. Pending external work
+## 6. Pending external work / research status
 
-Four research reports commissioned via Claude Opus deep research, not yet returned. Each will arrive as a PDF.
+| Report | Status | Notes |
+|---|---|---|
+| Short-form script pacing / beat-length research | Applied | Informed the `script_segments` scaffold patterns and experimental timing framing in `buildSystemPrompt()` (session 2, commit `d0f7294`). |
+| 20–30 real dated content topics | Applied | 20 rows seeded into `topics` with correct `original_date` values (session 2). |
+| Thumbnail / visual pattern research | Applied | 8 rows seeded into `visual_patterns` (session 2). |
+| Platform performance benchmarks | Reviewed, not yet wired | Report reviewed and content confirmed accurate/usable. Intentionally deferred — no feature code written. Will inform analytics prioritization once the team has enough real logged performance data to compare against the benchmarks. |
+| X video-length research | Reviewed, not yet wired | Report reviewed and content confirmed accurate/usable. Intentionally deferred for the same reason — no feature code written. |
 
-| Report | What it will unblock |
-|---|---|
-| Short-form script pacing / beat-length research | Refine `script_segments` prompt logic in `buildSystemPrompt()` — currently the segment count and beat labels are heuristic. Real research on optimal beat durations per platform will let us tighten the duration guidance. |
-| 20–30 real dated content topics | Seed the `topics` table with actual recent AI/tech topics via CSV import. Fixes the "manually seeded" gap immediately. |
-| Thumbnail / visual pattern research | Seed the `visual_patterns` table (same import workflow as `master_hook_bank.xlsx` → hooks). Fixes the empty visual patterns gap; thumbnail prompts will have real grounding. |
-| Platform performance benchmarks | Provide a comparison baseline once `analytics` has real logged data. Will also inform what metrics to prioritize in the analytics view. |
+**Jupitrr integration — explicitly deferred.** Jupitrr (auto-captioning / B-roll tool) was researched as a potential integration point. No public API or developer documentation could be found. No code was written. Revisit only if their support team confirms an API exists.
 
 ---
 
@@ -216,6 +243,7 @@ Four research reports commissioned via Claude Opus deep research, not yet return
 - `tierFilterKey` + `allTierOptions` + `defaultExcludedTiers`: wire up the tier-toggle pill filter; query uses `.in(tierFilterKey, includedTiers)` so filtering is DB-side
 - `usageKey` + `usageWarnAt` (default 5): when a meta column's key matches `usageKey` and its raw numeric value is ≥ `usageWarnAt`, the value renders in amber (`#D9A257`) instead of muted gray
 - `columns[].format`: optional `(rawVal) => string` function; if provided, used instead of `String(rawVal)` for display. Raw value is still used for the `usageKey` threshold comparison.
+- `renderRowFooter`: optional `(row) => ReactNode` function. Called at the bottom of each row div, after the meta columns. Used by `/hooks` to render the per-platform transform control + result. Non-breaking default is `null`.
 
 ---
 
@@ -233,6 +261,9 @@ All migrations in `supabase/migrations/` are **reference only** after they've be
 | `007_hooks_tier_constraint.sql` | Applied | Drops old 4-value check constraint; LIKE-pattern UPDATEs normalise all descriptive variants to 7 canonical tier values; re-adds constraint inside a DO block (idempotent) |
 | `008_hook_usage_tracking.sql` | Applied | Adds `times_used` (int, default 0, not null) and `last_used_at` (timestamptz) to `hooks`; creates `increment_hook_usage(uuid[])` RPC for atomic batch increment |
 | `009_import_review_queue.sql` | **Pending apply** | Enables `pg_trgm`; adds GIN trigram index on `hooks.hook_text`; creates `import_review_queue` table and `find_similar_hooks(query_text, threshold)` RPC |
+| `011_topics_original_date.sql` | Applied | Adds `original_date date` (nullable) to `topics`; wired into `POST /api/import-topics` |
+| `012_selected_hook_tier.sql` | Applied | Adds `selected_hook_tier text` (nullable) to `pipeline_runs`; saved at approval time |
+| `013_hook_transforms.sql` | Applied | Creates `hook_transforms` table (`source_hook_id` → `hooks`, `target_platform`, `transformed_text`); GIN lookup index; RLS open policy |
 
 ---
 
