@@ -2,7 +2,7 @@ const MODULES = [
   {
     href: "/topics",
     title: "Topics feed",
-    desc: "Daily content topics. Placeholder data until Hermes is wired in.",
+    desc: "20 seeded topics. Hermes integration deferred — Supabase REST ready for direct writes.",
   },
   {
     href: "/hooks",
@@ -12,7 +12,27 @@ const MODULES = [
   {
     href: "/corpus",
     title: "Writing corpus",
-    desc: "Articles and posts used to train the AI on voice and style.",
+    desc: "Voice & style reference for the AI. Bulk import UI built; content is 0 rows — paste past writing here.",
+  },
+  {
+    href: "/pipeline",
+    title: "Pipeline",
+    desc: "Generate scripts, hook options, titles, and a thumbnail from a topic or news brief.",
+  },
+  {
+    href: "/analytics",
+    title: "Analytics",
+    desc: "Manual post-performance tracking — views, likes, watch time — linked to pipeline runs.",
+  },
+  {
+    href: "/import-review",
+    title: "Import review",
+    desc: "Deduplicate incoming hooks against the bank before importing.",
+  },
+  {
+    href: "/hook-performance",
+    title: "Hook performance",
+    desc: "Audit which evidence tiers produce the best engagement across approved runs.",
   },
 ];
 
@@ -21,8 +41,8 @@ export default function HomePage() {
     <div>
       <h1 className="text-xl font-medium text-neutral-100">Overview</h1>
       <p className="mt-2 max-w-lg text-sm text-neutral-400">
-        Alpha build. Three modules, wired to Supabase. Analytics and the
-        automation pipeline are not in this build yet.
+        Seven modules, all wired to Supabase. Pipeline, analytics, import
+        review, and hook performance are built and functional.
       </p>
       <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-3">
         {MODULES.map((m) => (

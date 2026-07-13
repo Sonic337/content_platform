@@ -3,6 +3,10 @@
 import { useEffect, useState, useCallback } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
+// Stable reference so the useCallback dep doesn't change on every render when
+// the caller doesn't pass allTierOptions (default [] would be a new ref each time).
+const EMPTY_ARRAY = [];
+
 /**
  * columns:              [{ key, label, format?: (rawVal) => string }]
  * filterKey:            column name used for the quick filter dropdown (optional)
@@ -26,7 +30,7 @@ export default function DataTable({
   getRowColors,
   extraPayload = {},
   tierFilterKey,
-  allTierOptions = [],
+  allTierOptions = EMPTY_ARRAY,
   defaultExcludedTiers = [],
   usageKey,
   usageWarnAt = 5,

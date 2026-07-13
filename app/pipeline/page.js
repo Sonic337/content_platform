@@ -514,7 +514,7 @@ export default function PipelinePage() {
             display: "grid",
             gridTemplateColumns: "1fr 1fr 1fr",
             gap: "14px",
-            alignItems: "start",
+            alignItems: "end",
           }}
         >
           {/* Left: text / topic picker */}
