@@ -25,6 +25,7 @@ export async function POST(req) {
       if (raw.summary) row.summary = raw.summary.trim();
       if (raw.source_name) row.source_name = raw.source_name.trim();
       if (raw.source_url) row.source_url = raw.source_url.trim();
+      if (raw.original_date) row.original_date = raw.original_date;
       if (Array.isArray(raw.tags)) {
         row.tags = raw.tags;
       } else if (typeof raw.tags === "string" && raw.tags.trim()) {
