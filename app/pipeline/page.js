@@ -76,9 +76,10 @@ function RunCard({ run, onUpdated }) {
     if (!ho) return { conservative: [], mixed: [], experimental: [] };
     if (Array.isArray(ho)) return { conservative: [], mixed: ho, experimental: [] };
     return {
-      conservative: ho.conservative ?? [],
-      mixed:        ho.mixed        ?? [],
-      experimental: ho.experimental ?? [],
+      conservative:      ho.conservative      ?? [],
+      conservative_note: ho.conservative_note ?? null,
+      mixed:             ho.mixed             ?? [],
+      experimental:      ho.experimental      ?? [],
     };
   })();
   const titles = Array.isArray(run.title_options) ? run.title_options : [];
@@ -209,9 +210,14 @@ function RunCard({ run, onUpdated }) {
                   if (!group.length) return null;
                   return (
                     <div key={key} style={{ marginBottom: "12px" }}>
-                      <div style={{ ...mono, fontSize: "9px", color: accent, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: "6px", paddingLeft: "2px" }}>
+                      <div style={{ ...mono, fontSize: "9px", color: accent, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: key === "conservative" && hookGroups.conservative_note ? "3px" : "6px", paddingLeft: "2px" }}>
                         {label}
                       </div>
+                      {key === "conservative" && hookGroups.conservative_note && (
+                        <div style={{ ...mono, fontSize: "10px", color: "#7C8489", marginBottom: "6px", paddingLeft: "2px" }}>
+                          {hookGroups.conservative_note}
+                        </div>
+                      )}
                       <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                         {group.map((h, i) => {
                           const val = h.hook_text;

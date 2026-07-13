@@ -206,7 +206,7 @@ INSTRUCTIONS:
 - Beat labels should reflect their scaffold function: hook, context, proof, demo, result, limitation, pivot, cta, etc.
 - Produce hook_options as a JSON OBJECT with exactly three keys: "conservative", "mixed", "experimental". Each is an array of hook entries adapted to this specific topic and platform.
 
-  "conservative" (2-3 hooks): Pull ONLY from bank hooks labeled [VERIFIED 3-0] or [VERIFIED 2-1] in the HOOK BANK above. If fewer than 2 such hooks exist in the bank, fill with [SOURCED UNVERIFIED] as fallback — do not leave the group empty.
+  "conservative" (2-3 hooks): Pull ONLY from bank hooks labeled [VERIFIED 3-0] or [VERIFIED 2-1] in the HOOK BANK above. If fewer than 2 such hooks exist in the bank, fill with [SOURCED UNVERIFIED] as fallback — do not leave the group empty. When any fallback hooks are used, add a top-level "conservative_note" key to hook_options (not inside the hooks array) stating how many truly VERIFIED hooks were available and that SOURCED UNVERIFIED was used as fallback — e.g. "Only 1 truly VERIFIED hook available for this topic; 1 SOURCED UNVERIFIED included as fallback." Omit "conservative_note" entirely if every hook in conservative is VERIFIED 3-0 or VERIFIED 2-1.
 
   "mixed" (2-3 bank hooks + 1 generated): Pull bank hooks from any tier in the bank EXCEPT [NOT CONFIRMED] and [REFUTED]. Include exactly 1 freshly generated hook in the same voice as the corpus samples.
 
@@ -220,7 +220,8 @@ INSTRUCTIONS:
 
 - Produce exactly 3 title_options.
 - Return ONLY a JSON object with this exact shape — no prose, no markdown, no code fences:
-{"script_segments":[{"start_sec":0,"end_sec":5,"label":"hook","text":"..."},{"start_sec":5,"end_sec":12,"label":"context","text":"..."}],"hook_options":{"conservative":[{"hook_text":"...","source":"bank","bank_index":2}],"mixed":[{"hook_text":"...","source":"bank","bank_index":1},{"hook_text":"...","source":"generated"}],"experimental":[{"hook_text":"...","source":"generated"}]},"title_options":["...","...","..."]}`;
+{"script_segments":[{"start_sec":0,"end_sec":5,"label":"hook","text":"..."},{"start_sec":5,"end_sec":12,"label":"context","text":"..."}],"hook_options":{"conservative":[{"hook_text":"...","source":"bank","bank_index":2}],"conservative_note":"Only 1 truly VERIFIED hook available for this topic; 1 SOURCED UNVERIFIED included as fallback.","mixed":[{"hook_text":"...","source":"bank","bank_index":1},{"hook_text":"...","source":"generated"}],"experimental":[{"hook_text":"...","source":"generated"}]},"title_options":["...","...","..."]}
+The "conservative_note" key is only present when SOURCED UNVERIFIED fallbacks were used; omit it entirely when all conservative hooks are VERIFIED 3-0 or VERIFIED 2-1.`;
 }
 
 async function callAnthropic(systemPrompt, input_text, target_platform) {
@@ -348,6 +349,7 @@ export async function POST(request) {
   const hook_options = rawGroups && !Array.isArray(rawGroups) && typeof rawGroups === "object"
     ? {
         conservative: (rawGroups.conservative ?? []).map(resolveHookEntry),
+        ...(rawGroups.conservative_note ? { conservative_note: rawGroups.conservative_note } : {}),
         mixed:        (rawGroups.mixed        ?? []).map(resolveHookEntry),
         experimental: (rawGroups.experimental ?? []).map(resolveHookEntry),
       }
