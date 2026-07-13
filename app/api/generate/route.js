@@ -174,7 +174,7 @@ function buildSystemPrompt(hooks, corpus, visualPatterns, targetDurationSec) {
 
   const visualBlock =
     visualPatterns.length > 0
-      ? `\nVISUAL PATTERNS (proven thumbnail/visual direction for this platform and topic area — shape the thumbnail description and script visual cues around one of these if relevant):\n${visualPatterns
+      ? `\nVISUAL PATTERNS (platform-grounded visual direction — evidence labels indicate confidence level; treat as testable starting points, not proven formulas — shape the thumbnail description and script visual cues around one of these if relevant):\n${visualPatterns
           .map((p, i) => `${i + 1}. [${p.category_pattern ?? "general"}] ${p.pattern_text}`)
           .join("\n")}\n`
       : "";
@@ -194,9 +194,16 @@ ${corpusBlock}${visualBlock}
 INSTRUCTIONS:
 - Produce script_segments: a list of timed beats covering the full video runtime.
   ${durationLine}
-  Each beat should be short enough to match one visual/edit cut — a few sentences at most, not a paragraph.
+  TIMING IS AN EXPERIMENTAL HYPOTHESIS — no platform has published verified optimal beat lengths for organic AI short-form content. Treat every segment boundary as a testable variable, not a fixed rule. A new beat is justified when the viewer's task changes (claim→mechanism, input→action, action→output, output→limitation), not on arbitrary timers.
+
+  Choose the scaffold pattern that best fits the topic and platform:
+  A) Result-first AI demo — Open on the completed output or before/after state (TEASER PAYOFF); name the tool and minimum constraint; demonstrate the one or two key actions; show result quality, limitation, or comparison (RESOLVED PAYOFF). If you open with a flashy result, the resolved payoff — how it was produced and whether it works under real constraints — must follow; skipping it weakens trust.
+  B) Build-in-public update — State the measurable change or failure; explain what changed and why it matters; show the build step, dashboard, prompt, or user behavior; reveal the outcome and what failed; close with the next experiment or follow invitation.
+  C) Talking-head AI analysis — Deliver a specific claim or tension; define the affected user and consequence; explain mechanism with screenshots, overlays, or named examples (a face alone is not evidence); present evidence, objection, or trade-off; close with a decision rule or CTA.
+
+  Each beat should be concise — a few sentences at most, not a paragraph.
 - The FIRST segment (label "hook") must read like one of the grounding hook examples above: punchy, direct, no generic intro. It IS the hook.
-- Beat labels should reflect their role: hook, context, proof, pivot, cta, etc.
+- Beat labels should reflect their scaffold function: hook, context, proof, demo, result, limitation, pivot, cta, etc.
 - Produce 4-5 hook_options: a mix of bank hooks adapted to this specific topic (source: "bank") and 1-2 newly generated hooks in the same voice as the corpus (source: "generated").
   For bank hooks, include bank_index: the 1-based number of the hook from the HOOK BANK list above (e.g. bank_index: 2 if you adapted hook #2). For generated hooks omit bank_index entirely.
 - Produce exactly 3 title_options.
@@ -349,7 +356,7 @@ export async function POST(request) {
   const openingBeat = script_segments[0]?.text ?? "";
   const visualCue =
     visualPatterns.length > 0
-      ? ` Visual style: ${visualPatterns[0].pattern_text?.slice(0, 100)}.`
+      ? ` Visual instruction (${visualPatterns[0].category_pattern?.split('|')[0].trim() ?? 'pattern'}): ${visualPatterns[0].pattern_text?.slice(0, 120)}.`
       : " Cinematic, high-contrast, bold typography style.";
   const thumbnail_prompt = `${topTitle}. ${openingBeat.slice(0, 120)}.${visualCue}`;
 
