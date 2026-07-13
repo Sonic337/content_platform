@@ -69,7 +69,7 @@ export default function AnalyticsPage() {
   }
 
   const extraPayload = selectedRunId
-    ? { pipeline_run_id: Number(selectedRunId) }
+    ? { pipeline_run_id: selectedRunId }
     : {};
 
   return (
