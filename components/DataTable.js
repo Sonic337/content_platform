@@ -30,6 +30,7 @@ export default function DataTable({
   defaultExcludedTiers = [],
   usageKey,
   usageWarnAt = 5,
+  renderRowFooter = null,
 }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -439,6 +440,7 @@ export default function DataTable({
                     })}
                   </div>
                 )}
+                {renderRowFooter?.(row)}
               </div>
             );
           })
