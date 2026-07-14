@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
+import { supabase } from "@/lib/supabaseClient";
 import DataTable from "@/components/DataTable";
 import { topicStatusColors } from "@/lib/tierColor";
 
@@ -9,9 +10,57 @@ const mono = { fontFamily: "var(--font-ibm-plex-mono)" };
 // Keep in sync with FETCH_WINDOW_HOURS in app/api/fetch-group-news/route.js
 const FETCH_WINDOW_HOURS = 48;
 
+const TOPIC_STATUSES = ["approved", "pending_review", "rejected"];
+
+function btnStyle(color, disabled) {
+  return {
+    ...mono,
+    borderRadius: "3px",
+    border: `1px solid ${disabled ? "#232B31" : color === "green" ? "#4C9A6A" : color === "amber" ? "#C98A3E" : "#B4483F"}`,
+    backgroundColor: "transparent",
+    padding: "5px 14px",
+    fontSize: "11px",
+    color: disabled
+      ? "#7C8489"
+      : color === "green"
+        ? "#5FA97D"
+        : color === "amber"
+          ? "#D9A257"
+          : "#C96158",
+    cursor: disabled ? "not-allowed" : "pointer",
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
+    whiteSpace: "nowrap",
+  };
+}
+
 export default function TopicsPage() {
   const [fetching, setFetching] = useState(false);
-  const [fetchResult, setFetchResult] = useState(null); // { fetched, inserted, skipped } | { error }
+  const [fetchResult, setFetchResult] = useState(null);
+
+  const [rawItems, setRawItems] = useState([]);
+  const [loadingRaw, setLoadingRaw] = useState(true);
+  const [showRaw, setShowRaw] = useState(false);
+  const [processingIds, setProcessingIds] = useState(new Set());
+  const [processingAll, setProcessingAll] = useState(false);
+  const [analyzeResult, setAnalyzeResult] = useState(null);
+
+  const [tableKey, setTableKey] = useState(0);
+
+  const loadRawItems = useCallback(async () => {
+    setLoadingRaw(true);
+    const { data } = await supabase
+      .from("raw_news_items")
+      .select("id, message_text, posted_at")
+      .eq("status", "unprocessed")
+      .order("posted_at", { ascending: false });
+    setRawItems(data || []);
+    setLoadingRaw(false);
+  }, []);
+
+  useEffect(() => {
+    loadRawItems();
+  }, [loadRawItems]);
 
   async function handleFetchGroupNews() {
     setFetching(true);
@@ -23,6 +72,7 @@ export default function TopicsPage() {
         setFetchResult({ error: data.error ?? "Fetch failed." });
       } else {
         setFetchResult(data);
+        await loadRawItems();
       }
     } catch (err) {
       setFetchResult({ error: err.message });
@@ -31,8 +81,63 @@ export default function TopicsPage() {
     }
   }
 
+  async function callAnalyze(ids) {
+    const res = await fetch("/api/analyze-news", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rawNewsItemIds: ids }),
+    });
+    return res.json();
+  }
+
+  async function handleProcessAll() {
+    if (rawItems.length === 0 || processingAll) return;
+    setProcessingAll(true);
+    setAnalyzeResult(null);
+    try {
+      const ids = rawItems.map((r) => r.id);
+      const result = await callAnalyze(ids);
+      setAnalyzeResult(result);
+      await loadRawItems();
+      setTableKey((k) => k + 1);
+    } catch (err) {
+      setAnalyzeResult({ error: err.message });
+    } finally {
+      setProcessingAll(false);
+    }
+  }
+
+  async function handleProcessOne(id) {
+    setProcessingIds((prev) => new Set(prev).add(id));
+    try {
+      const result = await callAnalyze([id]);
+      setAnalyzeResult(result);
+      await loadRawItems();
+      setTableKey((k) => k + 1);
+    } catch (err) {
+      setAnalyzeResult({ error: err.message });
+    } finally {
+      setProcessingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }
+  }
+
+  async function handleApprove(id) {
+    await supabase.from("topics").update({ status: "approved" }).eq("id", id);
+    setTableKey((k) => k + 1);
+  }
+
+  async function handleReject(id) {
+    await supabase.from("topics").update({ status: "rejected" }).eq("id", id);
+    setTableKey((k) => k + 1);
+  }
+
   return (
     <div>
+      {/* ── Header ── */}
       <div
         style={{
           display: "flex",
@@ -54,53 +159,151 @@ export default function TopicsPage() {
         >
           Topics feed
         </h1>
-        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
-          {fetchResult && !fetchResult.error && (
+        <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
+          {/* Analyze result / fetch result inline labels */}
+          {analyzeResult && !analyzeResult.error && (
             <span style={{ ...mono, fontSize: "11px", color: "#7C8489" }}>
-              scanned {fetchResult.scanned}, {fetchResult.withinWindow} within {FETCH_WINDOW_HOURS}h — {fetchResult.inserted} new, {fetchResult.skipped} duplicate{fetchResult.skipped !== 1 ? "s" : ""}
+              {analyzeResult.processed ?? 0} processed — {analyzeResult.createdTopics ?? 0} created,{" "}
+              {analyzeResult.ignoredNotRelevant ?? 0} not relevant, {analyzeResult.ignoredDuplicate ?? 0} duplicate
+              {analyzeResult.errors?.length > 0 && (
+                <span style={{ color: "#C96158" }}>, {analyzeResult.errors.length} error{analyzeResult.errors.length !== 1 ? "s" : ""}</span>
+              )}
             </span>
           )}
-          {fetchResult?.error && (
+          {analyzeResult?.error && (
+            <span style={{ ...mono, fontSize: "11px", color: "#C96158" }}>
+              {analyzeResult.error}
+            </span>
+          )}
+          {fetchResult && !fetchResult.error && !analyzeResult && (
+            <span style={{ ...mono, fontSize: "11px", color: "#7C8489" }}>
+              scanned {fetchResult.scanned ?? 0},{" "}
+              {fetchResult.withinWindow ?? 0} within {FETCH_WINDOW_HOURS}h —{" "}
+              {fetchResult.inserted ?? 0} new, {fetchResult.skipped ?? 0}{" "}
+              duplicate{(fetchResult.skipped ?? 0) !== 1 ? "s" : ""}
+            </span>
+          )}
+          {fetchResult?.error && !analyzeResult && (
             <span style={{ ...mono, fontSize: "11px", color: "#C96158" }}>
               {fetchResult.error}
             </span>
           )}
           <button
+            onClick={handleProcessAll}
+            disabled={processingAll || rawItems.length === 0}
+            style={btnStyle("amber", processingAll || rawItems.length === 0)}
+          >
+            {processingAll
+              ? "Running…"
+              : `Run news${rawItems.length > 0 ? ` (${rawItems.length})` : ""}`}
+          </button>
+          <button
             onClick={handleFetchGroupNews}
             disabled={fetching}
-            style={{
-              ...mono,
-              borderRadius: "3px",
-              border: `1px solid ${fetching ? "#232B31" : "#4C9A6A"}`,
-              backgroundColor: "transparent",
-              padding: "5px 14px",
-              fontSize: "11px",
-              color: fetching ? "#7C8489" : "#5FA97D",
-              cursor: fetching ? "not-allowed" : "pointer",
-              letterSpacing: "0.04em",
-              textTransform: "uppercase",
-              whiteSpace: "nowrap",
-            }}
+            style={btnStyle("green", fetching)}
           >
             {fetching ? "Fetching…" : "Fetch group news"}
           </button>
         </div>
       </div>
-      <p
-        style={{
-          marginBottom: "28px",
-          ...mono,
-          fontSize: "12px",
-          color: "#7C8489",
-        }}
-      >
+      <p style={{ marginBottom: "20px", ...mono, fontSize: "12px", color: "#7C8489" }}>
         Placeholder data until Hermes writes here directly.
       </p>
+
+      {/* ── Raw messages collapsible section ── */}
+      {!loadingRaw && rawItems.length > 0 && (
+        <div style={{ marginBottom: "24px" }}>
+          <button
+            onClick={() => setShowRaw((v) => !v)}
+            style={{
+              ...mono,
+              fontSize: "11px",
+              color: "#7C8489",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              padding: "0",
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+              marginBottom: showRaw ? "12px" : "0",
+            }}
+          >
+            {showRaw ? "▾" : "▸"} Raw messages ({rawItems.length} unprocessed)
+          </button>
+          {showRaw && (
+            <div
+              style={{
+                border: "1px solid #232B31",
+                borderRadius: "3px",
+                overflow: "hidden",
+              }}
+            >
+              {rawItems.map((item) => {
+                const isProcessing = processingIds.has(item.id);
+                const preview =
+                  item.message_text.length > 240
+                    ? item.message_text.slice(0, 240) + "…"
+                    : item.message_text;
+                return (
+                  <div
+                    key={item.id}
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      justifyContent: "space-between",
+                      gap: "16px",
+                      padding: "12px 16px",
+                      borderBottom: "1px solid #232B31",
+                      backgroundColor: "#171D21",
+                    }}
+                  >
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div
+                        style={{
+                          ...mono,
+                          fontSize: "12px",
+                          color: "#E8E6DE",
+                          lineHeight: "1.5",
+                          whiteSpace: "pre-wrap",
+                          wordBreak: "break-word",
+                        }}
+                      >
+                        {preview}
+                      </div>
+                      <div
+                        style={{
+                          ...mono,
+                          fontSize: "10px",
+                          color: "#7C8489",
+                          marginTop: "4px",
+                        }}
+                      >
+                        {new Date(item.posted_at).toLocaleString()}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleProcessOne(item.id)}
+                      disabled={isProcessing || processingAll}
+                      style={btnStyle("amber", isProcessing || processingAll)}
+                    >
+                      {isProcessing ? "Running…" : "Process"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Topics DataTable ── */}
       <DataTable
+        key={tableKey}
         table="topics"
-        filterKey="status"
         bodyKey="title"
         tierKey="status"
+        tierFilterKey="status"
+        allTierOptions={TOPIC_STATUSES}
         getRowColors={(row) => topicStatusColors(row.status)}
         columns={[
           { key: "title", label: "Title" },
@@ -119,9 +322,51 @@ export default function TopicsPage() {
             key: "status",
             label: "Status",
             type: "select",
-            options: ["new", "reviewed", "used"],
+            options: ["approved", "pending_review", "rejected"],
           },
         ]}
+        renderRowFooter={(row) => {
+          const hasPending = row.status === "pending_review";
+          const hasReasoning = Boolean(row.ai_reasoning);
+          if (!hasPending && !hasReasoning) return null;
+
+          return (
+            <div style={{ marginTop: "12px" }}>
+              {hasReasoning && (
+                <div
+                  style={{
+                    ...mono,
+                    fontSize: "11px",
+                    color: "#7C8489",
+                    lineHeight: "1.6",
+                    whiteSpace: "pre-wrap",
+                    borderLeft: "2px solid #232B31",
+                    paddingLeft: "10px",
+                    marginBottom: hasPending ? "10px" : "0",
+                  }}
+                >
+                  {row.ai_reasoning}
+                </div>
+              )}
+              {hasPending && (
+                <div style={{ display: "flex", gap: "8px" }}>
+                  <button
+                    onClick={() => handleApprove(row.id)}
+                    style={btnStyle("green", false)}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    onClick={() => handleReject(row.id)}
+                    style={btnStyle("red", false)}
+                  >
+                    Reject
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        }}
       />
     </div>
   );

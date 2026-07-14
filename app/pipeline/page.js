@@ -399,6 +399,7 @@ export default function PipelinePage() {
     const { data } = await supabase
       .from("topics")
       .select("id, title, status")
+      .eq("status", "approved")
       .order("id", { ascending: false })
       .limit(100);
     setTopics(data || []);
