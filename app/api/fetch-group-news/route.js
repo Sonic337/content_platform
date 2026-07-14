@@ -134,7 +134,8 @@ export async function POST() {
       await client.disconnect();
       return NextResponse.json({
         ok: true,
-        fetched: messages.length,
+        scanned: messages.length,
+        withinWindow: 0,
         inserted: 0,
         skipped: 0,
       });
@@ -174,7 +175,8 @@ export async function POST() {
 
     return NextResponse.json({
       ok: true,
-      fetched: messages.length,
+      scanned: messages.length,
+      withinWindow: recentMessages.length,
       inserted,
       skipped,
     });

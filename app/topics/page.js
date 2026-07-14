@@ -6,6 +6,9 @@ import { topicStatusColors } from "@/lib/tierColor";
 
 const mono = { fontFamily: "var(--font-ibm-plex-mono)" };
 
+// Keep in sync with FETCH_WINDOW_HOURS in app/api/fetch-group-news/route.js
+const FETCH_WINDOW_HOURS = 48;
+
 export default function TopicsPage() {
   const [fetching, setFetching] = useState(false);
   const [fetchResult, setFetchResult] = useState(null); // { fetched, inserted, skipped } | { error }
@@ -54,7 +57,7 @@ export default function TopicsPage() {
         <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
           {fetchResult && !fetchResult.error && (
             <span style={{ ...mono, fontSize: "11px", color: "#7C8489" }}>
-              fetched {fetchResult.fetched} — {fetchResult.inserted} new, {fetchResult.skipped} duplicate{fetchResult.skipped !== 1 ? "s" : ""}
+              scanned {fetchResult.scanned}, {fetchResult.withinWindow} within {FETCH_WINDOW_HOURS}h — {fetchResult.inserted} new, {fetchResult.skipped} duplicate{fetchResult.skipped !== 1 ? "s" : ""}
             </span>
           )}
           {fetchResult?.error && (
