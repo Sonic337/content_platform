@@ -1,4 +1,4 @@
-> **Living document rule:** This file must be updated, not left stale. At the end of any session that changes architecture, adds a module, makes a vendor/schema decision, or resolves one of the "Known gaps" below — update the relevant section before ending the session and commit `CONTEXT.md` alongside the code change in the same commit.
+open -e CONTEXT.md> **Living document rule:** This file must be updated, not left stale. At the end of any session that changes architecture, adds a module, makes a vendor/schema decision, or resolves one of the "Known gaps" below — update the relevant section before ending the session and commit `CONTEXT.md` alongside the code change in the same commit.
 
 ---
 
@@ -272,3 +272,170 @@ Things learned in practice that aren't derivable from the code but are worth pre
 **Supabase SQL editor silent failure:** The SQL editor has intermittently reported "Success, no rows returned" for write statements that did not actually commit. Pairing a write with a verifying `SELECT` in the same execution (e.g. `UPDATE ...; SELECT count(*) FROM hooks WHERE evidence_tier = 'SOURCED UNVERIFIED';`) reliably surfaces the true state. Do not trust "Success" alone for schema changes or data migrations.
 
 **Hook bank text fields contain descriptive suffixes:** The original `master_hook_bank.xlsx` data has evidence_tier values like `NOT CONFIRMED (0-3)`, `VERIFIED 3-0 across multiple niches`, `REFUTED 10/10`, etc. Migration 007 handles this with LIKE-pattern UPDATEs. The same pattern may apply to other text columns (`category_pattern`, `mechanism`, `creator_archetype`) — verify before assuming exact-match filtering will work on any column sourced from the original spreadsheet.
+
+---
+
+## Session 4 — Hermes/Sparkron news ingestion + AI analysis pipeline (this session)
+
+### What was built, in order (see git log c20a964..HEAD for full commit list)
+
+**1. Telegram webhook ingestion (commit 26014f0)**
+- New table `raw_news_items`: telegram_message_id, telegram_chat_id,
+  message_text, posted_at, received_at, raw_payload (jsonb), status
+  (default 'unprocessed'), created_at. Unique constraint on
+  (telegram_chat_id, telegram_message_id) — ON CONFLICT DO NOTHING on
+  every insert, so re-delivery/re-fetching never creates duplicates.
+- New route `POST /api/hermes-webhook` — verifies
+  X-Telegram-Bot-Api-Secret-Token header against TELEGRAM_WEBHOOK_SECRET,
+  inserts on valid text messages, always returns 200 to Telegram (per
+  Telegram's retry semantics) except on auth failure (401).
+- Tested end-to-end against a personal test bot (@SonicHermesNew_bot, NOT
+  the real Sparkron/Hermes bot). Confirmed one real row landed correctly.
+- Real bugs hit and fixed during setup (documented for pattern-recognition,
+  same as Session 2/3 bugs list): 
+  - GramJS/telegram package's `telegram/sessions` import is a directory
+    import unsupported under strict ESM — fixed by importing
+    `telegram/sessions/index.js` explicitly in all 3 files that use it.
+  - New files were created locally by Claude Code but never committed —
+    Vercel deployed a build missing the route entirely (404). Lesson:
+    after any Claude Code session, always run `git status` before
+    assuming anything is deployed.
+  - `SUPABASE_SECRET_KEY` in Vercel was set to a corrupted value (the key
+    duplicated with a literal newline between copies) from a bad
+    copy-paste during initial Vercel env var setup — caused a cryptic
+    `Headers.set: invalid header value` error. Lesson: after any manual
+    Vercel dashboard env var entry, verify with `vercel env pull` and
+    compare against the intended value, don't trust the masked
+    "Sensitive" display.
+  - `TELEGRAM_WEBHOOK_SECRET` was initially set to an empty string in
+    Vercel (added as a key with no value during the New Project screen) —
+    caused persistent 401s that looked like a secret mismatch but were
+    actually a missing value. Same lesson as above.
+  - A pre-existing, unrelated local service (`ai.hermes.gateway`, a
+    launchd-managed background process from a separate personal project
+    at `~/practice/hermes-agent`) was found to be actively polling the
+    same bot token via long-polling, which silently cleared our webhook
+    registration repeatedly. Stopped via
+    `launchctl bootout gui/$(id -u)/ai.hermes.gateway`. Not expected to
+    recur unless that separate Hermes CLI tool is reinstalled/restarted.
+
+**2. Manual Telegram group fetch — "Fetch group news" (commits 4259576, d253df5, 09ea209)**
+- Deliberately NOT automated/scheduled — button-click only, per explicit
+  decision to stay clearly within normal personal-account usage patterns
+  rather than run a standing background job against a personal Telegram
+  account (MTProto/GramJS, not the Bot API).
+- One-time local-only login: `scripts/telegram-login.mjs` (interactive,
+  never deployed) produces a session string, saved as
+  TELEGRAM_USER_SESSION in both .env.local and Vercel. This is a
+  high-sensitivity credential — equivalent to being logged into the
+  user's real Telegram account, not scoped like a bot token.
+- `scripts/list-telegram-dialogs.mjs` (local-only) lists all groups/
+  channels with their real IDs — used once to identify the "Cron Jobs"
+  group (basic Group type, id 5555873255) as TELEGRAM_GROUP_IDENTIFIER.
+- New route `POST /api/fetch-group-news`, button on `/topics`. Fetches up
+  to 500 recent messages via GramJS, filters to a 48-hour window
+  (FETCH_WINDOW_HOURS constant), inserts into raw_news_items with the
+  same dedup constraint as the webhook path. Returns { scanned,
+  withinWindow, inserted, skipped }.
+- Real bug fixed: bare numeric group IDs for basic (non-super) Telegram
+  Groups get misresolved by GramJS as PeerUser instead of PeerChat unless
+  explicitly constructed via `Api.InputPeerChat`. Fixed; code comment
+  left explaining Channels/Supergroups need InputPeerChannel instead if
+  TELEGRAM_GROUP_IDENTIFIER is ever pointed at a different group type.
+- Confirmed working end-to-end against the real "Cron Jobs" group,
+  including confirmed correct dedup behavior across repeated real clicks
+  (second click on same time window: 0 new, 10 duplicates).
+
+**3. AI analysis pipeline — "Run News" (commits 958b450, 477a919, 59dfae9) — PARTIALLY WORKING, ONE KNOWN BUG, SEE BELOW**
+- New migration 015: added `status` column values expanded from the
+  pre-existing ('new','reviewed','used') to ('approved','pending_review',
+  'rejected'); all 20 pre-existing seeded topics migrated to 'approved'.
+  Added `source_raw_news_item_id` (FK to raw_news_items) and
+  `ai_reasoning` (text) columns to topics.
+  IMPORTANT CORRECTION TO EARLIER SESSION DOCS: topics already had a
+  `status` column before this session (default 'new') — this was never
+  documented in earlier CONTEXT.md versions. Worth checking for other
+  undocumented columns if similar surprises show up elsewhere.
+- New route `POST /api/analyze-news`, accepts { rawNewsItemIds: string[] }
+  — same route serves both "process all unprocessed" (batch) and
+  "process this one" (individual) buttons on /topics.
+- Pipeline per raw item: Step 1 relevance+extraction (Claude,
+  claude-sonnet-5, strict JSON) → Step 2 dedup check against last-60-days
+  topic titles (Claude) → Step 3 non-blocking web_search saturation check
+  → Step 4 insert into topics as status='pending_review' (NEVER
+  auto-approved — human must click Approve on /topics).
+- Pipeline's topic picker (`app/pipeline/page.js`) now filters
+  `.eq("status", "approved")` so pending_review/rejected topics never
+  appear as generation input.
+- /topics UI: status filter pills (approved/pending_review/rejected),
+  collapsible "Raw messages (N unprocessed)" section with per-row
+  "Process" buttons, "Run news" batch button, Approve/Reject buttons on
+  pending_review rows with ai_reasoning shown inline.
+
+  **KNOWN BUG, UNRESOLVED AS OF END OF THIS SESSION:**
+  Real Sparkron/Hermes cron-brief digest messages (format: "Cronjob
+  Response: twice-daily-x-reddit-feed-brief-XXXX", containing ~10
+  numbered findings) are being rejected WHOLESALE by Step 1's relevance
+  check, with reasoning like: "This is a meta-analysis of social media
+  sentiment/trends rather than concrete news events." The model judges
+  the message's overall framing (reads as "analysis") before ever
+  considering whether individual numbered findings within it are
+  concrete enough to be separate topics. This defeats the entire
+  digest-splitting feature (commit 477a919) — splitting logic is present
+  in the code (JSON array output, per-candidate dedup/insert loop) and
+  is believed structurally correct, but never executes because Step 1's
+  system prompt evaluates relevance holistically BEFORE checking for
+  digest structure, so digests never clear the relevance bar in the
+  first place.
+  A fix was scoped (restructure Step 1's system prompt so digest/numbered-
+  list detection happens FIRST and structurally, with each numbered
+  finding getting its own independent relevant/not-relevant judgment,
+  rather than one holistic judgment on the whole message) but NOT YET
+  IMPLEMENTED OR TESTED as of end of this session. See "Immediate open
+  items" below — this is the top item.
+  Debug logging was added (console.log of raw Step 1 and Step 2 API
+  responses) to app/api/analyze-news/route.js to diagnose this — safe to
+  leave in place or remove once the fix is confirmed working.
+
+### Current real data state (as of end of session, verify before trusting)
+- raw_news_items: 10 real rows from the "Cron Jobs" group fetch, mostly
+  status='ignored' (either genuinely not relevant, or caught by the
+  digest-relevance bug above), one reset to 'unprocessed' for testing
+  and currently sitting there.
+- topics: 20 original seeded rows (status='approved') + a small number of
+  AI-created rows from before the digest-relevance bug was discovered,
+  including one broad "Trend Digest: Multi-Agent Coding Workflows &
+  Rising Reliability/Trust Concerns" meta-topic (status='approved', user-
+  approved before the splitting feature existed) that should probably be
+  reviewed/replaced once the digest bug is fixed and re-run.
+
+### New env vars this session (all added to .env.local.example and Vercel)
+- TELEGRAM_BOT_TOKEN, TELEGRAM_WEBHOOK_SECRET (webhook path)
+- TELEGRAM_API_ID, TELEGRAM_API_HASH, TELEGRAM_USER_SESSION,
+  TELEGRAM_GROUP_IDENTIFIER (group-fetch path — TELEGRAM_USER_SESSION is
+  high-sensitivity, treat as equivalent to an account password)
+
+### Immediate open items, updated priority order
+1. **Fix the digest-relevance bug in /api/analyze-news Step 1** (see
+   above) — this blocks the entire point of today's session, which was
+   getting real Sparkron/Hermes-style digest content usably split into
+   individual topics. Fix is scoped, not yet implemented.
+2. Once fixed: reset raw_news_items id 3c92daea-b3e7-4e91-9174-4265ef8749d1
+   (or whichever real digest is available) to 'unprocessed' and re-test
+   via "Process this one," verify multiple specific topics get created.
+3. Decide what to do with the existing broad "Trend Digest..." meta-topic
+   once split candidates exist alongside it — likely reject/delete it in
+   favor of the specific split versions.
+4. Remove or keep the debug console.log lines added this session, once
+   the fix is confirmed stable.
+5. This session's ingestion (webhook + group-fetch) was tested against a
+   PERSONAL TEST BOT and the "Cron Jobs" GROUP — not yet pointed at
+   Sparkron/Hermes's actual production bot/feed if that's different from
+   what's already connected. Confirm whether "Cron Jobs" group IS the
+   real intended source or a separate test setup.
+6. xAI/Grok integration for X-specific viral/saturation signal —
+   deliberately deferred, not started.
+7. Everything from the original "Immediate open items" list (Corpus 0
+   rows, defaultExcludedTiers unstable-reference risk, platform
+   benchmarks/X video-length reports unused) is still open and unchanged
+   by this session.
