@@ -19,6 +19,7 @@ const EMPTY_ARRAY = [];
  * defaultExcludedTiers: tier strings excluded from view on first load (default [])
  * usageKey:             column key whose numeric value is checked for the overuse warning (optional)
  * usageWarnAt:          threshold at or above which usageKey value renders amber (default 5)
+ * sortRows:             optional `(rows) => rows` applied at render time for custom sort order
  */
 export default function DataTable({
   table,
@@ -35,6 +36,7 @@ export default function DataTable({
   usageKey,
   usageWarnAt = 5,
   renderRowFooter = null,
+  sortRows = null,
 }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -373,7 +375,7 @@ export default function DataTable({
             No rows yet. Connect Supabase env vars and run the migration, or add one above.
           </div>
         ) : (
-          rows.map((row) => {
+          (sortRows ? sortRows(rows) : rows).map((row) => {
             const colors = getRowColors
               ? getRowColors(row)
               : { border: "#7C8489", text: "#7C8489" };

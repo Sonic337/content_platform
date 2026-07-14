@@ -333,11 +333,20 @@ export default function TopicsPage() {
             options: ["approved", "pending_review", "rejected"],
           },
         ]}
+        sortRows={(rows) =>
+          [...rows].sort((a, b) => {
+            const aPriority = a.status === "pending_review" ? 0 : 1;
+            const bPriority = b.status === "pending_review" ? 0 : 1;
+            if (aPriority !== bPriority) return aPriority - bPriority;
+            return new Date(b.date_added) - new Date(a.date_added);
+          })
+        }
         renderRowFooter={(row) => {
           const hasPending = row.status === "pending_review";
           const hasRevertable =
             row.status === "approved" || row.status === "rejected";
           const hasReasoning = Boolean(row.ai_reasoning);
+          const isBorderline = row.ai_reasoning?.includes("[BORDERLINE]");
           if (!hasPending && !hasRevertable && !hasReasoning) return null;
 
           return (
@@ -359,7 +368,7 @@ export default function TopicsPage() {
                 </div>
               )}
               {hasPending && (
-                <div style={{ display: "flex", gap: "8px" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
                   <button
                     onClick={() => handleApprove(row.id)}
                     style={btnStyle("green", false)}
@@ -372,6 +381,22 @@ export default function TopicsPage() {
                   >
                     Reject
                   </button>
+                  {isBorderline && (
+                    <span
+                      style={{
+                        ...mono,
+                        fontSize: "10px",
+                        color: "#C98A3E",
+                        border: "1px solid #C98A3E",
+                        borderRadius: "3px",
+                        padding: "2px 6px",
+                        letterSpacing: "0.05em",
+                        opacity: 0.8,
+                      }}
+                    >
+                      borderline
+                    </span>
+                  )}
                 </div>
               )}
               {hasRevertable && (
