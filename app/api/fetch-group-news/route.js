@@ -1,19 +1,31 @@
 import { createServerClient } from "@/lib/supabaseServer";
 import { NextResponse } from "next/server";
-import { TelegramClient } from "telegram";
+import { TelegramClient, Api } from "telegram";
 import { StringSession } from "telegram/sessions/index.js";
+import bigInt from "big-integer";
 
 export const maxDuration = 30;
 
-const MESSAGE_LIMIT = 100;
+// Safety cap: maximum messages fetched from Telegram per request.
+// Prevents unbounded fetches on very high-volume groups.
+const FETCH_LIMIT = 500;
+
+// Time window: only keep messages newer than this many hours.
+// The DB's ON CONFLICT DO NOTHING constraint handles deduplication —
+// re-fetching messages already in raw_news_items never creates duplicate rows.
+// This window is a separate, complementary bound: it controls how far back
+// each button click looks, purely for performance and relevance (no point
+// scanning week-old messages every time). Changing it to 24 would mean each
+// fetch only considers the last 24h of messages; dedup still happens at the
+// DB level regardless.
+const FETCH_WINDOW_HOURS = 48;
 
 // Build a JSON-safe payload from a GramJS message object.
-// GramJS Message fields are typed as follows (from tl/custom/message.d.ts):
+// GramJS Message fields (from tl/custom/message.d.ts):
 //   id: number       — the message ID
 //   date: number     — unix timestamp in seconds
-//   message: string  — the text content ("message" is the MTProto field name; the Bot API calls it "text")
-// Entity id fields (from tl/api.d.ts) are BigInteger (type long = BigInteger),
-// so we call .toString() on them to stay JSON-safe.
+//   message: string  — the text content (MTProto field name; Bot API calls it "text")
+// Entity id fields (tl/api.d.ts): type long = BigInteger — call .toString() to stay JSON-safe.
 function safeMsgPayload(msg) {
   return {
     _source: "gramjs",
@@ -62,40 +74,74 @@ export async function POST() {
     apiHash,
     { connectionRetries: 2 }
   );
-  // Suppress verbose MTProto logs in server output.
   client.setLogLevel("error");
 
   try {
-    // Connect using the saved session — no interactive login needed.
     await client.connect();
 
-    // Resolve the group entity. TELEGRAM_GROUP_IDENTIFIER can be either
-    // a numeric chat ID (e.g. "1234567890") or a @username string.
-    const entityRef = /^-?\d+$/.test(groupIdentifier)
-      ? parseInt(groupIdentifier, 10)
-      : groupIdentifier;
+    // ── Build the peer explicitly rather than passing a bare number to getEntity().
+    //
+    // GramJS's resolveId() (Utils.js) classifies bare positive integers as PeerUser,
+    // so getEntity(5555873255) silently tries a user lookup and fails. Basic groups
+    // require the "marked" negative format (-chatId) for auto-detection, OR an explicit
+    // InputPeerChat construction. We use the explicit form to be unambiguous.
+    //
+    // Api.InputPeerChat type (from tl/api.d.ts):
+    //   export class InputPeerChat extends VirtualClass<{ chatId: long }> {
+    //     chatId: long;  // long = BigInteger from big-integer library
+    //   }
+    //
+    // If TELEGRAM_GROUP_IDENTIFIER is ever changed to point at a Supergroup or Channel,
+    // this needs to change to Api.InputPeerChannel({ channelId: bigInt(id), accessHash: ... }).
+    // Channels require a valid accessHash (not available without first resolving the entity
+    // via a string @username or from a dialog list). The easiest path for channels is to
+    // pass the @username string directly to getMessages() instead of constructing InputPeer.
+    const isNumeric = /^-?\d+$/.test(groupIdentifier);
 
-    const entity = await client.getEntity(entityRef);
+    let peer;
+    let chatId;
 
-    // entity.id is a BigInteger (GramJS type `long` = BigInteger from big-integer library).
-    // Telegram group/channel IDs are well within JS safe-integer range, so Number() is safe.
-    const chatId = parseInt(entity.id.toString(), 10);
+    if (isNumeric) {
+      const numericId = parseInt(groupIdentifier, 10);
+      chatId = Math.abs(numericId); // store the raw positive chatId
 
-    // Fetch the last MESSAGE_LIMIT messages from the group.
-    const messages = await client.getMessages(entity, { limit: MESSAGE_LIMIT });
-
-    // Filter to text-only messages (msg.message is the text field in GramJS's MTProto naming).
-    const textMessages = messages.filter(
-      (msg) => typeof msg.message === "string" && msg.message.trim().length > 0
-    );
-
-    if (textMessages.length === 0) {
-      await client.disconnect();
-      return NextResponse.json({ ok: true, fetched: messages.length, inserted: 0, skipped: 0 });
+      // Construct explicit InputPeerChat for basic groups.
+      // chatId must be a BigInteger (GramJS type long), not a plain JS number.
+      peer = new Api.InputPeerChat({ chatId: bigInt(chatId) });
+    } else {
+      // @username or "groupname" string — GramJS can resolve these correctly
+      // via getEntity() because string resolution goes through a different
+      // code path (contacts.ResolvedPeer) that doesn't use resolveId().
+      // This path also works for Channels/Supergroups identified by username.
+      const entity = await client.getEntity(groupIdentifier);
+      chatId = parseInt(entity.id.toString(), 10);
+      peer = entity;
     }
 
-    // Build the insert payload.
-    const upsertPayload = textMessages.map((msg) => ({
+    // Fetch up to FETCH_LIMIT recent messages from the group.
+    const messages = await client.getMessages(peer, { limit: FETCH_LIMIT });
+
+    // Apply the time-window filter client-side.
+    const windowStart = Date.now() - FETCH_WINDOW_HOURS * 60 * 60 * 1000;
+    const recentMessages = messages.filter(
+      (msg) =>
+        typeof msg.message === "string" &&
+        msg.message.trim().length > 0 &&
+        msg.date * 1000 >= windowStart
+    );
+
+    if (recentMessages.length === 0) {
+      await client.disconnect();
+      return NextResponse.json({
+        ok: true,
+        fetched: messages.length,
+        inserted: 0,
+        skipped: 0,
+      });
+    }
+
+    // Build the upsert payload.
+    const upsertPayload = recentMessages.map((msg) => ({
       telegram_message_id: msg.id,
       telegram_chat_id: chatId,
       message_text: msg.message,
@@ -104,9 +150,8 @@ export async function POST() {
     }));
 
     // Batch upsert with ON CONFLICT (telegram_chat_id, telegram_message_id) DO NOTHING.
-    // .select("id") makes PostgreSQL return RETURNING id — only actually-inserted rows
-    // are returned when ignoreDuplicates:true fires DO NOTHING on conflicts.
-    // So data.length === inserted count; (upsertPayload.length - data.length) === skipped.
+    // .select("id") uses RETURNING id: only actually-inserted rows are returned,
+    // so data.length === inserted and (upsertPayload.length - data.length) === skipped.
     const supabase = createServerClient();
     const { data, error } = await supabase
       .from("raw_news_items")
