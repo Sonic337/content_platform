@@ -84,6 +84,7 @@ NOT RELEVANT (the entire message has nothing for our niche):
       const relevanceBlock = relevanceMsg.content.find(
         (b) => b.type === "text"
       );
+      console.log("[analyze-news] RAW Step 1 response:", relevanceBlock.text);
       const parsed = JSON.parse(relevanceBlock.text);
 
       // Normalize to array.
@@ -132,6 +133,7 @@ NOT RELEVANT (the entire message has nothing for our niche):
           });
 
           const dedupBlock = dedupMsg.content.find((b) => b.type === "text");
+          console.log("[analyze-news] RAW dedup response for candidate:", candidate.title, dedupBlock.text);
           const dedup = JSON.parse(dedupBlock.text);
 
           if (dedup.isDuplicate) {
