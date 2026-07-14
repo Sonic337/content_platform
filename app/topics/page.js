@@ -135,6 +135,14 @@ export default function TopicsPage() {
     setTableKey((k) => k + 1);
   }
 
+  async function handleRevert(id) {
+    await supabase
+      .from("topics")
+      .update({ status: "pending_review" })
+      .eq("id", id);
+    setTableKey((k) => k + 1);
+  }
+
   return (
     <div>
       {/* ── Header ── */}
@@ -327,8 +335,10 @@ export default function TopicsPage() {
         ]}
         renderRowFooter={(row) => {
           const hasPending = row.status === "pending_review";
+          const hasRevertable =
+            row.status === "approved" || row.status === "rejected";
           const hasReasoning = Boolean(row.ai_reasoning);
-          if (!hasPending && !hasReasoning) return null;
+          if (!hasPending && !hasRevertable && !hasReasoning) return null;
 
           return (
             <div style={{ marginTop: "12px" }}>
@@ -342,7 +352,7 @@ export default function TopicsPage() {
                     whiteSpace: "pre-wrap",
                     borderLeft: "2px solid #232B31",
                     paddingLeft: "10px",
-                    marginBottom: hasPending ? "10px" : "0",
+                    marginBottom: hasPending || hasRevertable ? "10px" : "0",
                   }}
                 >
                   {row.ai_reasoning}
@@ -363,6 +373,23 @@ export default function TopicsPage() {
                     Reject
                   </button>
                 </div>
+              )}
+              {hasRevertable && (
+                <button
+                  onClick={() => handleRevert(row.id)}
+                  style={{
+                    ...mono,
+                    background: "none",
+                    border: "none",
+                    padding: "0",
+                    fontSize: "11px",
+                    color: "#7C8489",
+                    cursor: "pointer",
+                    letterSpacing: "0.03em",
+                  }}
+                >
+                  revert to pending review
+                </button>
               )}
             </div>
           );

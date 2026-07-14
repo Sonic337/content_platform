@@ -167,7 +167,7 @@ If NO:
         try {
           const searchMsg = await anthropic.messages.create({
             model: "claude-sonnet-5",
-            max_tokens: 2048,
+            max_tokens: 4096,
             tools: [{ type: "web_search_20250305", name: "web_search" }],
             system:
               "You are checking how fresh a piece of news is. After searching, write 1–2 sentences: is this breaking news from the last day or two, or has it been widely covered for longer? Be specific about recency.",
@@ -179,9 +179,13 @@ If NO:
             ],
           });
 
-          const searchBlock = searchMsg.content.find((b) => b.type === "text");
-          if (searchBlock) {
-            saturationNote = searchBlock.text.trim();
+          const saturationText = searchMsg.content
+            .filter((b) => b.type === "text")
+            .map((b) => b.text)
+            .join(" ")
+            .trim();
+          if (saturationText) {
+            saturationNote = saturationText;
           }
         } catch {
           saturationNote = "Web search unavailable for this item.";
