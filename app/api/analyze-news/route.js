@@ -55,28 +55,44 @@ export async function POST(request) {
       const relevanceMsg = await anthropic.messages.create({
         model: "claude-sonnet-5",
         max_tokens: 4096,
-        system: `You are an editorial assistant for ${NICHE_DESCRIPTION}. Evaluate whether a raw Telegram message contains news worth turning into video topics for this niche.
+        system: `You are an editorial assistant for ${NICHE_DESCRIPTION}. Your job is to extract usable video topic candidates from a Telegram message.
 
 Respond with valid JSON only. No markdown, no code fences, no prose outside the JSON.
 
-SINGLE-STORY message (the whole message describes one news event):
-Return a single object:
-{"relevant":true,"title":"<concise topic title, ≤80 chars>","summary":"<2–3 sentence summary: what happened and why it matters for our niche>","tags":["tag1","tag2"],"suggested_date":"<ISO date the event occurred, e.g. 2026-07-14 — null if not determinable>"}
+─── STEP 1: STRUCTURE CHECK (do this first, before any relevance judgment) ───
 
-DIGEST message (contains multiple distinct, separately-numbered findings or sections, each a different story):
-Return a bare JSON array — one object per distinct relevant story. Do NOT wrap the array in another object; the top-level response IS the array:
+Does the message contain multiple distinct numbered findings, bullet points, or clearly delineated separate items (e.g. "1. ...", "2. ...", or "What dominated X:", "What dominated Reddit:", etc.)? This includes digest briefs, cron reports, trend summaries, and any other format with numbered or sectioned entries — the genre label does not matter, only the presence of discrete enumerable items.
+
+IF YES → this is a MULTI-ITEM message. Go to STEP 2.
+IF NO  → this is a SINGLE-ITEM message. Go to STEP 3.
+
+─── STEP 2: MULTI-ITEM path ───
+
+Evaluate EACH numbered finding or discrete item INDEPENDENTLY. For each one, ask: does this specific finding describe something concrete enough to build one video around? Concrete means: a named tool, company, product, launch, statistic, workflow pattern, or event — not a vague observation or restatement of a theme. The overall framing of the message (e.g. "meta-analysis", "trend brief", "sentiment digest") is IRRELEVANT to this judgment. Judge only the individual finding's content.
+
+For each finding that passes: include it as an object in the output array. For each finding that does not pass: omit it silently.
+
+Return a bare JSON array (the top-level response IS the array — do NOT wrap it in an object):
 [
-  {"relevant":true,"title":"...","summary":"...","tags":[...],"suggested_date":"..."},
+  {"relevant":true,"title":"<concise title for this finding, ≤80 chars>","summary":"<2–3 sentences: what specifically happened/was observed and why it matters for our niche>","tags":["tag1","tag2"],"suggested_date":"<ISO date of the event/observation, e.g. 2026-07-14 — null if not determinable>"},
   {"relevant":true,"title":"...","summary":"...","tags":[...],"suggested_date":"..."}
 ]
-Only include findings relevant to our niche. Omit irrelevant findings entirely. Each item must be specific enough to stand alone as a single video topic — do not produce a meta-summary of the digest.
 
-NOT RELEVANT (the entire message has nothing for our niche):
+If NONE of the individual findings are concrete enough, return an empty array: []
+
+─── STEP 3: SINGLE-ITEM path ───
+
+Does this single message describe something relevant to our niche (AI tools, vibe-coding, build-in-public) and specific enough to be its own video topic?
+
+If YES:
+{"relevant":true,"title":"<concise title, ≤80 chars>","summary":"<2–3 sentences: what happened and why it matters for our niche>","tags":["tag1","tag2"],"suggested_date":"<ISO date — null if not determinable>"}
+
+If NO:
 {"relevant":false,"reason":"<brief reason>"}`,
         messages: [
           {
             role: "user",
-            content: `Evaluate this Telegram message. Is it one story, a digest of multiple distinct stories, or not relevant?\n\n${rawItem.message_text}`,
+            content: `Extract video topic candidates from this Telegram message:\n\n${rawItem.message_text}`,
           },
         ],
       });
