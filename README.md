@@ -1,41 +1,73 @@
-# Content Ops Platform — alpha
+# Content Ops Platform
 
-Internal dashboard for topics, hooks, and writing corpus. Three modules,
-backed by Supabase. Analytics and the automation pipeline are not built yet.
+Internal content-operations dashboard for a two-person AI content creator
+operation (short-form + long-form video: AI tools, vibe-coding,
+build-in-public, AI SaaS).
 
 ## Stack
 
-- Next.js (App Router) + Tailwind
-- Supabase (Postgres, REST API, auth)
-- Deploy target: Vercel
+- **Framework:** Next.js (App Router) + Tailwind
+- **Database:** Supabase (Postgres)
+- **Hosting:** Vercel
+- **Text generation:** Claude (`claude-sonnet-5`) via the Anthropic API
+- **Thumbnails:** fal.ai
+- **News ingestion:** Telegram (webhook + on-demand fetch via GramJS)
 
-## Local setup
+## What it does
+
+Seven core pages, each backed by a Supabase table:
+
+| Page | Purpose |
+|---|---|
+| `/topics` | News feed — ingested from Telegram, AI-reviewed and scored, human-approved before use |
+| `/hooks` | Evidence-tiered hook bank (117 seeded hooks), usage tracking, per-platform transform |
+| `/corpus` | Past writing samples for voice-matching (not yet populated) |
+| `/pipeline` | Core generation: script, hooks, titles, thumbnail — draft only, nothing auto-publishes |
+| `/analytics` | Manual performance logging per published post |
+| `/import-review` | Duplicate/contradiction review queue for bulk hook imports |
+| `/hook-performance` | Read-only audit: which evidence tiers actually perform |
+
+News flows in from Telegram (a webhook for live delivery, or a manual
+"Fetch group news" button for on-demand pulls from a specific group),
+gets AI-reviewed and scored against an explicit rubric
+(`skills/content-review.md`), and lands as `pending_review` topics for a
+human to approve or reject before anything downstream uses them.
+
+## Running locally
 
 ```bash
 npm install
-cp .env.example .env.local   # fill in your Supabase project URL + anon key
+cp .env.local.example .env.local   # fill in real values
 npm run dev
 ```
 
-## Database setup
+Required environment variables are listed in `.env.local.example` with
+comments on where to obtain each one. None of them have real values
+committed anywhere in this repo.
 
-1. Create a Supabase project.
-2. Open the SQL editor and run `supabase/migrations/001_alpha_schema.sql`.
-   This creates `topics`, `hooks`, and `corpus` with RLS enabled and an
-   open policy (tighten before giving external agents write access).
-3. The `hooks` table schema matches `master_hook_bank.xlsx` column-for-column.
-   Export that sheet to CSV and import it via Supabase's table editor
-   ("Import data from CSV") to seed the real 117 rows.
+## Deployment
 
-## What's not here yet
+Deployed on Vercel, connected to this repo's `main` branch. Environment
+variables are set separately in the Vercel dashboard (Project Settings →
+Environment Variables) — they are **not** derived from `.env.local` and
+must be kept in sync manually when a new variable is introduced.
 
-- Hermes ingestion (topics table is placeholder-fed for now)
-- Embeddings / semantic search (vector columns exist, unused)
-- Analytics module
-- Automation pipeline (news in -> script/hooks/title/thumbnail out)
+Database migrations live in `supabase/migrations/` and are run manually
+in the Supabase SQL editor — there is no automated migration runner yet.
+Each migration file is self-contained and includes a verifying `SELECT`
+at the end.
 
-## Design
+## Current process gaps (being addressed)
 
-Current UI is a functional skeleton, not a finished visual design. Next
-pass on this should apply real typography/layout decisions rather than
-default Tailwind grays.
+This project has moved fast as a solo prototype. The following are known,
+explicit gaps rather than oversights:
+
+- No PR/branch workflow yet — commits go directly to `main`.
+- No issue tracker (GitHub Issues / Linear / Notion) — bugs are found,
+  fixed, and discussed live rather than logged.
+- No CI, no automated tests, no automated linting on push.
+- No formal code review — verification has been manual (real command
+  output, real query results checked against every change before
+  trusting it), not automated.
+
+See `CHANGELOG.md` for a full history of what's been built.
