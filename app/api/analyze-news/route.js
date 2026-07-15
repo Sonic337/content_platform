@@ -160,7 +160,6 @@ If score ≤ 3:
       const relevanceBlock = relevanceMsg.content.find(
         (b) => b.type === "text"
       );
-      console.log("[analyze-news] RAW Step 1 response:", relevanceBlock.text);
       const parsed = JSON.parse(relevanceBlock.text);
 
       // Normalize to array.
@@ -209,7 +208,6 @@ If score ≤ 3:
           });
 
           const dedupBlock = dedupMsg.content.find((b) => b.type === "text");
-          console.log("[analyze-news] RAW dedup response for candidate:", candidate.title, dedupBlock.text);
           const dedup = JSON.parse(dedupBlock.text);
 
           if (dedup.isDuplicate) {
