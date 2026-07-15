@@ -3,19 +3,9 @@
 All notable changes to this project, organized by feature rather than by
 individual commit.
 
-## [Unreleased] — Session 4: Telegram news ingestion + AI review pipeline
+## [Unreleased] — Session 4: AI review pipeline
 
 ### Added
-- **Telegram webhook ingestion** (`/api/hermes-webhook`): receives
-  messages pushed from a connected Telegram bot in real time, stores them
-  in a new `raw_news_items` table. Duplicate-safe (unique constraint on
-  chat ID + message ID).
-- **Manual group fetch** (`/api/fetch-group-news`, button on `/topics`):
-  on-demand pull of recent messages from a specific Telegram group the
-  user is a member of, using the user's own Telegram account
-  (not a bot) via a one-time local login. Deliberately not automated or
-  scheduled — triggered only by an explicit click. 48-hour lookback
-  window, same duplicate-safe insert as the webhook path.
 - **AI news analysis pipeline** (`/api/analyze-news`, "Run news" button):
   reads raw ingested messages and:
   - Detects and splits multi-story digest messages into individual topic
