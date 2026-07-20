@@ -421,7 +421,7 @@ export default function PipelinePage() {
         inputMode === "topic"
           ? topics.find((t) => String(t.id) === topicId)?.title ?? ""
           : inputText,
-      topic_id: inputMode === "topic" && topicId ? Number(topicId) : undefined,
+      topic_id: inputMode === "topic" && topicId ? topicId : undefined,
       target_duration_sec: parsedDuration && !Number.isNaN(parsedDuration) ? parsedDuration : undefined,
     };
 
