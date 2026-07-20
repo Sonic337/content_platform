@@ -275,6 +275,27 @@ Things learned in practice that aren't derivable from the code but are worth pre
 
 ---
 
+## Session 2 — Research integration (script prompts, topics seed, visual patterns)
+
+_2026-07-13. Full detail previously lived in SESSION_SUMMARY.md, now folded in here as the single source of truth. That file has been archived._
+
+**Script segments prompt rewrite (`app/api/generate/route.js`, commit `d0f7294`):** Replaced the generic `script_segments` instruction with three named scaffold patterns:
+- **A: Result-first AI demo** — hook, context, demo, proof, limitation, cta
+- **B: Build-in-public update** — hook, context, mechanism, proof, result, limitation, cta
+- **C: Talking-head AI analysis** — hook, context, demo, result, limitation, cta
+
+Explicitly framed as "TIMING IS AN EXPERIMENTAL HYPOTHESIS" — no platform has published verified beat-length data, so this is stated as a testable structure, not a proven formula. Same commit updated the thumbnail visual-cue label from "proven thumbnail/visual direction" to "platform-grounded visual direction — evidence labels indicate confidence level; treat as testable starting points, not proven formulas," matching the project's evidence-tier honesty elsewhere.
+
+Verified with 3 real generation tests (TikTok/result-first, Instagram Reels/build-in-public, YouTube Shorts/talking-head) — all passed: sequential non-overlapping timestamps summing to the target duration, varied beat labels, correct hook/title counts.
+
+**Topics import route (`app/api/import-topics/route.js`, commit `612a6de`):** New POST endpoint, accepts `{ rows: [...] }`, validates `title` is required, batch-inserts into `topics`. Used to seed the 20 real dated topics (June 30 – July 10 2026) referenced elsewhere in this document — confirmed via Supabase REST `content-range: 0-0/20`.
+
+**Visual patterns seeded (table `visual_patterns`):** 8 rows inserted directly via Supabase REST (anon key, application-level write) from the visual-pattern research report — these are the same 8 rows referenced in Section 3 above.
+
+**Self-audit result:** no placeholder text, no unverified timing claims stated as fact, no schema changes required (existing `visual_patterns` columns were sufficient).
+
+---
+
 ## Session 4 — Hermes/Sparkron news ingestion + AI analysis pipeline (this session)
 
 ### What was built, in order (see git log c20a964..HEAD for full commit list)
