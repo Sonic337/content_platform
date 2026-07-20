@@ -296,6 +296,28 @@ Verified with 3 real generation tests (TikTok/result-first, Instagram Reels/buil
 
 ---
 
+## Session 5 — topic linking fix, generate route thinking-behavior confirmed
+
+_2026-07-20._
+
+**Fixed:** pipeline_runs.topic_id was bigint against topics.id being uuid
+(migration 016) — a valid FK relationship was never actually possible.
+Confirmed 31 existing rows all had topic_id = null before the fix, no
+data lost. Separately, app/pipeline/page.js's "Pick topic" flow was
+calling Number(topicId) on what is a UUID string, which silently
+produced NaN -> null on every request, meaning topic linking never
+worked from the UI even before the schema was wrong. Both fixed
+together; confirmed working end-to-end via a real generate call showing
+a populated topic_id in the resulting row.
+
+**Investigated, not a bug:** app/api/generate/route.js's Anthropic calls
+return `content block types: ['thinking', 'text']` on every request.
+Confirmed via direct grep that nothing in this codebase explicitly
+enables thinking -- this is claude-sonnet-5's default behavior, already
+correctly handled by the existing `msg.content.find(b => b.type ===
+"text")` pattern (never content[0]). Nothing to toggle here; do not
+re-investigate this as a bug.
+
 ## Session 4 — Hermes/Sparkron news ingestion + AI analysis pipeline (this session)
 
 ### What was built, in order (see git log c20a964..HEAD for full commit list)
