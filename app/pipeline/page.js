@@ -408,7 +408,7 @@ export default function PipelinePage() {
   const loadTopics = useCallback(async () => {
     const { data } = await supabase
       .from("topics")
-      .select("id, title, status")
+      .select("id, title, status, original_date")
       .eq("status", "approved")
       .order("id", { ascending: false })
       .limit(100);
@@ -587,7 +587,7 @@ export default function PipelinePage() {
                 <option value="">Select a topic…</option>
                 {topics.map((t) => (
                   <option key={t.id} value={String(t.id)}>
-                    {t.title} [{t.status}]
+                    {t.title} [{t.status}]{t.original_date ? ` — news: ${t.original_date}` : ""}
                   </option>
                 ))}
               </select>
