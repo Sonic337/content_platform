@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback } from "react";
 import { tierColors } from "@/lib/tierColor";
 import { supabase } from "@/lib/supabaseClient";
 
+const ARCHIVE_AGE_DAYS = 7;
+
 const PLATFORMS = [
   { value: "tiktok", label: "TikTok" },
   { value: "instagram_reels", label: "Instagram Reels" },
@@ -396,12 +398,15 @@ export default function PipelinePage() {
   const [dateFrom, setDateFrom] = useState("");
   const [dateTo, setDateTo] = useState("");
   const [sortOrder, setSortOrder] = useState("desc");
+  const [archivingRuns, setArchivingRuns] = useState(false);
+  const [archiveRunsResult, setArchiveRunsResult] = useState(null);
 
   const loadRuns = useCallback(async () => {
     setLoadingRuns(true);
     const { data } = await supabase
       .from("pipeline_runs")
       .select("*")
+      .neq("status", "archived")
       .order("id", { ascending: false })
       .limit(50);
     setRuns(data || []);
@@ -503,6 +508,70 @@ export default function PipelinePage() {
 
   function handleRunUpdated(updated) {
     setRuns((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
+  }
+
+  async function handleArchiveRuns() {
+    setArchiveRunsResult(null);
+
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - ARCHIVE_AGE_DAYS);
+    const cutoffDate = cutoff.toISOString().slice(0, 10);
+
+    // Only draft/approved runs with a linked topic can be age-judged.
+    const { data: candidateRuns } = await supabase
+      .from("pipeline_runs")
+      .select("id, topic_id")
+      .in("status", ["draft", "approved"])
+      .not("topic_id", "is", null);
+
+    if (!candidateRuns?.length) {
+      setArchiveRunsResult("No archivable runs found.");
+      return;
+    }
+
+    const topicIds = [...new Set(candidateRuns.map((r) => r.topic_id))];
+
+    // Find which of those topics are old enough.
+    const { data: oldTopics } = await supabase
+      .from("topics")
+      .select("id")
+      .in("id", topicIds)
+      .lt("original_date", cutoffDate);
+
+    if (!oldTopics?.length) {
+      setArchiveRunsResult(`No runs linked to topics older than ${ARCHIVE_AGE_DAYS} days.`);
+      return;
+    }
+
+    const oldTopicIdSet = new Set(oldTopics.map((t) => t.id));
+    const toArchive = candidateRuns
+      .filter((r) => oldTopicIdSet.has(r.topic_id))
+      .map((r) => r.id);
+
+    if (!toArchive.length) {
+      setArchiveRunsResult(`No runs linked to topics older than ${ARCHIVE_AGE_DAYS} days.`);
+      return;
+    }
+
+    const count = toArchive.length;
+    const ok = window.confirm(
+      `This will archive ${count} run${count !== 1 ? "s" : ""} linked to topics older than ${ARCHIVE_AGE_DAYS} days — reversible. Continue?`
+    );
+    if (!ok) return;
+
+    setArchivingRuns(true);
+    const { error } = await supabase
+      .from("pipeline_runs")
+      .update({ status: "archived" })
+      .in("id", toArchive);
+    setArchivingRuns(false);
+
+    if (error) {
+      setArchiveRunsResult(`Archive failed: ${error.message}`);
+    } else {
+      setArchiveRunsResult(`Archived ${count} run${count !== 1 ? "s" : ""}.`);
+      loadRuns();
+    }
   }
 
   return (
@@ -688,6 +757,30 @@ export default function PipelinePage() {
         <span style={{ ...mono, fontSize: "11px", color: "#7C8489" }}>
           {loadingRuns ? "Loading runs…" : `${runs.length} runs`}
         </span>
+        {archiveRunsResult && (
+          <span style={{ ...mono, fontSize: "11px", color: archiveRunsResult.startsWith("Archive failed") ? "#C96158" : "#7C8489" }}>
+            {archiveRunsResult}
+          </span>
+        )}
+        <button
+          onClick={handleArchiveRuns}
+          disabled={archivingRuns}
+          style={{
+            ...mono,
+            borderRadius: "3px",
+            border: `1px solid ${archivingRuns ? "#232B31" : "#B4483F"}`,
+            backgroundColor: "transparent",
+            padding: "3px 10px",
+            fontSize: "11px",
+            color: archivingRuns ? "#7C8489" : "#C96158",
+            cursor: archivingRuns ? "not-allowed" : "pointer",
+            letterSpacing: "0.04em",
+            textTransform: "uppercase",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {archivingRuns ? "Archiving…" : "Archive old runs"}
+        </button>
         <input
           type="date"
           value={dateFrom}

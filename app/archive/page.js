@@ -28,6 +28,11 @@ export default function ArchivePage() {
   const [rawItemsMap, setRawItemsMap] = useState({});
   const [unarchiving, setUnarchiving] = useState(new Set());
 
+  const [runs, setRuns] = useState([]);
+  const [loadingRuns, setLoadingRuns] = useState(true);
+  const [runsTopicMap, setRunsTopicMap] = useState({});
+  const [unarchivingRun, setUnarchivingRun] = useState(new Set());
+
   async function load() {
     setLoading(true);
     const { data } = await supabase
@@ -39,8 +44,20 @@ export default function ArchivePage() {
     setLoading(false);
   }
 
+  async function loadRuns() {
+    setLoadingRuns(true);
+    const { data } = await supabase
+      .from("pipeline_runs")
+      .select("id, status, target_platform, created_at, selected_title, title_options, input_text, topic_id")
+      .eq("status", "archived")
+      .order("created_at", { ascending: false });
+    setRuns(data || []);
+    setLoadingRuns(false);
+  }
+
   useEffect(() => {
     load();
+    loadRuns();
   }, []);
 
   useEffect(() => {
@@ -59,6 +76,22 @@ export default function ArchivePage() {
       });
   }, [topics]);
 
+  useEffect(() => {
+    if (runs.length === 0) return;
+    const ids = [...new Set(runs.map((r) => r.topic_id).filter(Boolean))];
+    if (ids.length === 0) return;
+    supabase
+      .from("topics")
+      .select("id, original_date")
+      .in("id", ids)
+      .then(({ data }) => {
+        if (!data) return;
+        const map = {};
+        for (const t of data) map[t.id] = t;
+        setRunsTopicMap(map);
+      });
+  }, [runs]);
+
   async function handleUnarchive(id) {
     setUnarchiving((prev) => new Set(prev).add(id));
     await supabase
@@ -71,6 +104,20 @@ export default function ArchivePage() {
       return next;
     });
     setTopics((prev) => prev.filter((t) => t.id !== id));
+  }
+
+  async function handleUnarchiveRun(id) {
+    setUnarchivingRun((prev) => new Set(prev).add(id));
+    await supabase
+      .from("pipeline_runs")
+      .update({ status: "draft" })
+      .eq("id", id);
+    setUnarchivingRun((prev) => {
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
+    setRuns((prev) => prev.filter((r) => r.id !== id));
   }
 
   return (
@@ -206,6 +253,138 @@ export default function ArchivePage() {
                 <div style={{ marginTop: "12px" }}>
                   <button
                     onClick={() => handleUnarchive(row.id)}
+                    disabled={isUnarchiving}
+                    style={btnStyle(isUnarchiving)}
+                  >
+                    {isUnarchiving ? "Restoring…" : "Un-archive"}
+                  </button>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+    </div>
+
+      {/* ── Archived pipeline runs ── */}
+      <h2
+        style={{
+          marginTop: "48px",
+          marginBottom: "4px",
+          fontFamily: "var(--font-ibm-plex-sans)",
+          fontSize: "15px",
+          fontWeight: 500,
+          letterSpacing: "0.02em",
+          color: "#E8E6DE",
+        }}
+      >
+        Pipeline runs
+      </h2>
+      <p
+        style={{
+          marginBottom: "20px",
+          ...mono,
+          fontSize: "12px",
+          color: "#7C8489",
+        }}
+      >
+        Archived runs. Un-archiving sets status back to draft.
+      </p>
+
+      <div
+        style={{
+          ...mono,
+          fontSize: "11px",
+          color: "#7C8489",
+          marginBottom: "16px",
+        }}
+      >
+        {loadingRuns ? "" : `${runs.length} archived`}
+      </div>
+
+      <div style={{ borderTop: "1px solid #232B31" }}>
+        {loadingRuns ? (
+          <div
+            style={{
+              padding: "32px",
+              textAlign: "center",
+              ...mono,
+              fontSize: "12px",
+              color: "#7C8489",
+            }}
+          >
+            Loading…
+          </div>
+        ) : runs.length === 0 ? (
+          <div
+            style={{
+              padding: "32px",
+              textAlign: "center",
+              ...mono,
+              fontSize: "12px",
+              color: "#7C8489",
+            }}
+          >
+            No archived runs.
+          </div>
+        ) : (
+          runs.map((run) => {
+            const displayTitle =
+              run.selected_title ||
+              (Array.isArray(run.title_options) ? run.title_options[0] : null) ||
+              run.input_text?.slice(0, 80) ||
+              "Untitled";
+            const topic = run.topic_id ? runsTopicMap[run.topic_id] : null;
+            const isUnarchiving = unarchivingRun.has(run.id);
+
+            return (
+              <div
+                key={run.id}
+                style={{
+                  borderLeft: "3px solid #7C8489",
+                  borderBottom: "1px solid #232B31",
+                  backgroundColor: "#171D21",
+                  padding: "14px 16px",
+                }}
+              >
+                {/* Title */}
+                <div
+                  style={{
+                    fontFamily: "var(--font-fraunces)",
+                    fontSize: "15px",
+                    lineHeight: "1.55",
+                    color: "#E8E6DE",
+                    marginBottom: "8px",
+                  }}
+                >
+                  {displayTitle}
+                </div>
+
+                {/* Meta row */}
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "14px",
+                    ...mono,
+                    fontSize: "11px",
+                    color: "#7C8489",
+                    lineHeight: "1.4",
+                  }}
+                >
+                  {run.target_platform && <span>{run.target_platform}</span>}
+                  {run.created_at && (
+                    <span>{new Date(run.created_at).toLocaleDateString()}</span>
+                  )}
+                  {topic?.original_date && (
+                    <span>event: {topic.original_date}</span>
+                  )}
+                </div>
+
+                {/* Un-archive */}
+                <div style={{ marginTop: "12px" }}>
+                  <button
+                    onClick={() => handleUnarchiveRun(run.id)}
                     disabled={isUnarchiving}
                     style={btnStyle(isUnarchiving)}
                   >
