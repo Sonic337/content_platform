@@ -10,7 +10,8 @@ const mono = { fontFamily: "var(--font-ibm-plex-mono)" };
 // Keep in sync with FETCH_WINDOW_HOURS in app/api/fetch-group-news/route.js
 const FETCH_WINDOW_HOURS = 48;
 
-const TOPIC_STATUSES = ["approved", "pending_review", "rejected"];
+const TOPIC_STATUSES = ["approved", "pending_review", "rejected", "archived"];
+const ARCHIVE_AGE_DAYS = 7;
 
 function btnStyle(color, disabled) {
   return {
@@ -48,6 +49,8 @@ export default function TopicsPage() {
 
   const [tableKey, setTableKey] = useState(0);
   const [rawItemsMap, setRawItemsMap] = useState({});
+  const [archiving, setArchiving] = useState(false);
+  const [archiveResult, setArchiveResult] = useState(null);
 
   useEffect(() => {
     supabase
@@ -152,6 +155,61 @@ export default function TopicsPage() {
     setTableKey((k) => k + 1);
   }
 
+  async function handleArchiveOld() {
+    setArchiveResult(null);
+
+    // Fetch all topic_ids currently linked to a pipeline run — these must not be archived.
+    const { data: linkedRuns } = await supabase
+      .from("pipeline_runs")
+      .select("topic_id")
+      .not("topic_id", "is", null);
+    const linkedIds = (linkedRuns || []).map((r) => r.topic_id);
+
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - ARCHIVE_AGE_DAYS);
+    const cutoffDate = cutoff.toISOString().slice(0, 10);
+
+    // Count candidates first so the confirm dialog shows a real number.
+    let countQuery = supabase
+      .from("topics")
+      .select("id", { count: "exact", head: true })
+      .lt("original_date", cutoffDate)
+      .in("status", ["pending_review", "approved"]);
+    if (linkedIds.length > 0) {
+      countQuery = countQuery.not("id", "in", `(${linkedIds.join(",")})`);
+    }
+    const { count } = await countQuery;
+
+    if (!count || count === 0) {
+      setArchiveResult(`No topics older than ${ARCHIVE_AGE_DAYS} days to archive.`);
+      return;
+    }
+
+    const ok = window.confirm(
+      `This will archive ${count} topic${count !== 1 ? "s" : ""} older than ${ARCHIVE_AGE_DAYS} days — they'll be hidden but recoverable. Continue?`
+    );
+    if (!ok) return;
+
+    setArchiving(true);
+    let updateQuery = supabase
+      .from("topics")
+      .update({ status: "archived" })
+      .lt("original_date", cutoffDate)
+      .in("status", ["pending_review", "approved"]);
+    if (linkedIds.length > 0) {
+      updateQuery = updateQuery.not("id", "in", `(${linkedIds.join(",")})`);
+    }
+    const { error } = await updateQuery;
+    setArchiving(false);
+
+    if (error) {
+      setArchiveResult(`Archive failed: ${error.message}`);
+    } else {
+      setArchiveResult(`Archived ${count} topic${count !== 1 ? "s" : ""}.`);
+      setTableKey((k) => k + 1);
+    }
+  }
+
   async function handleRevert(id) {
     await supabase
       .from("topics")
@@ -186,6 +244,11 @@ export default function TopicsPage() {
         </h1>
         <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
           {/* Analyze result / fetch result inline labels */}
+          {archiveResult && (
+            <span style={{ ...mono, fontSize: "11px", color: archiveResult.startsWith("Archive failed") ? "#C96158" : "#7C8489" }}>
+              {archiveResult}
+            </span>
+          )}
           {analyzeResult && !analyzeResult.error && (
             <span style={{ ...mono, fontSize: "11px", color: analyzeResult.stoppedEarly ? "#D9A257" : "#7C8489" }}>
               {analyzeResult.stoppedEarly
@@ -214,6 +277,13 @@ export default function TopicsPage() {
               {fetchResult.error}
             </span>
           )}
+          <button
+            onClick={handleArchiveOld}
+            disabled={archiving}
+            style={btnStyle("red", archiving)}
+          >
+            {archiving ? "Archiving…" : "Archive old news"}
+          </button>
           <button
             onClick={handleProcessAll}
             disabled={processingAll || rawItems.length === 0}
@@ -358,15 +428,21 @@ export default function TopicsPage() {
         tierKey="status"
         tierFilterKey="status"
         allTierOptions={TOPIC_STATUSES}
+        defaultExcludedTiers={["archived"]}
         getRowColors={(row) => topicStatusColors(row.status)}
         columns={[
           { key: "title", label: "Title" },
           { key: "source_name", label: "Source" },
           { key: "tags", label: "Tags" },
           { key: "status", label: "Status" },
-          { key: "original_date", label: "Event date" },
+          { key: "original_date", label: "News date", format: (v) => v ? `news: ${v}` : "" },
+          { key: "source_raw_news_item_id", label: "Telegram", format: (v) => {
+            if (!v) return "";
+            const item = rawItemsMap[v];
+            return item?.posted_at ? `telegram: ${new Date(item.posted_at).toLocaleDateString()}` : "";
+          }},
           { key: "date_added", label: "Added", format: (v) => v ? new Date(v).toLocaleDateString() : "" },
-          { key: "approved_at", label: "Approved", format: (v) => v ? new Date(v).toLocaleDateString() : "" },
+          { key: "approved_at", label: "Approved", format: (v) => v ? `approved: ${new Date(v).toLocaleDateString()}` : "" },
         ]}
         formFields={[
           { key: "title", label: "Title", type: "text" },
@@ -395,16 +471,10 @@ export default function TopicsPage() {
             row.status === "approved" || row.status === "rejected";
           const hasReasoning = Boolean(row.ai_reasoning);
           const isBorderline = row.ai_reasoning?.includes("[BORDERLINE]");
-          const rawItem = row.source_raw_news_item_id ? rawItemsMap[row.source_raw_news_item_id] : null;
-          if (!hasPending && !hasRevertable && !hasReasoning && !rawItem) return null;
+          if (!hasPending && !hasRevertable && !hasReasoning) return null;
 
           return (
             <div style={{ marginTop: "12px" }}>
-              {rawItem?.posted_at && (
-                <div style={{ ...mono, fontSize: "11px", color: "#7C8489", marginBottom: "8px" }}>
-                  telegram: {new Date(rawItem.posted_at).toLocaleDateString()}
-                </div>
-              )}
               {hasReasoning && (
                 <div
                   style={{
