@@ -264,7 +264,6 @@ export default function ArchivePage() {
           })
         )}
       </div>
-    </div>
 
       {/* ── Archived pipeline runs ── */}
       <h2
