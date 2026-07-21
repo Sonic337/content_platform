@@ -42,6 +42,7 @@ export default function TopicsPage() {
   const [loadingRaw, setLoadingRaw] = useState(true);
   const [showRaw, setShowRaw] = useState(false);
   const [processingIds, setProcessingIds] = useState(new Set());
+  const [expandedIds, setExpandedIds] = useState(new Set());
   const [processingAll, setProcessingAll] = useState(false);
   const [analyzeResult, setAnalyzeResult] = useState(null);
 
@@ -248,10 +249,12 @@ export default function TopicsPage() {
             >
               {rawItems.map((item) => {
                 const isProcessing = processingIds.has(item.id);
-                const preview =
-                  item.message_text.length > 240
-                    ? item.message_text.slice(0, 240) + "…"
-                    : item.message_text;
+                const isExpanded = expandedIds.has(item.id);
+                const needsTruncation = item.message_text.length > 240;
+                const displayText =
+                  isExpanded || !needsTruncation
+                    ? item.message_text
+                    : item.message_text.slice(0, 240) + "…";
                 return (
                   <div
                     key={item.id}
@@ -276,7 +279,7 @@ export default function TopicsPage() {
                           wordBreak: "break-word",
                         }}
                       >
-                        {preview}
+                        {displayText}
                       </div>
                       <div
                         style={{
@@ -289,13 +292,39 @@ export default function TopicsPage() {
                         {new Date(item.posted_at).toLocaleString()}
                       </div>
                     </div>
-                    <button
-                      onClick={() => handleProcessOne(item.id)}
-                      disabled={isProcessing || processingAll}
-                      style={btnStyle("amber", isProcessing || processingAll)}
-                    >
-                      {isProcessing ? "Running…" : "Process"}
-                    </button>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: "8px", flexShrink: 0 }}>
+                      <button
+                        onClick={() => handleProcessOne(item.id)}
+                        disabled={isProcessing || processingAll}
+                        style={btnStyle("amber", isProcessing || processingAll)}
+                      >
+                        {isProcessing ? "Running…" : "Process"}
+                      </button>
+                      {needsTruncation && (
+                        <button
+                          onClick={() =>
+                            setExpandedIds((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(item.id)) next.delete(item.id);
+                              else next.add(item.id);
+                              return next;
+                            })
+                          }
+                          style={{
+                            ...mono,
+                            background: "none",
+                            border: "none",
+                            padding: "0",
+                            fontSize: "11px",
+                            color: "#7C8489",
+                            cursor: "pointer",
+                            letterSpacing: "0.03em",
+                          }}
+                        >
+                          {isExpanded ? "Collapse ▲" : "Expand ▾"}
+                        </button>
+                      )}
+                    </div>
                   </div>
                 );
               })}
