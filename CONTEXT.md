@@ -768,3 +768,108 @@ to docs/design/):
    text-parsing of "Score: N/10" out of ai_reasoning) — raised as an
    open question in the Day 3b/Day 6 design docs, never explicitly
    decided either way.
+
+
+## Session 8 — Pick Topic dropdown dates, Pipeline archive system, real build-break lesson
+
+_2026-07-21 (continued)._
+
+**Pick Topic dropdown now shows original_date per option.** Previously
+each <option> showed only title + status; a topic's age was invisible
+until after selecting it. Now shows e.g. "Bonsai 27B: Big Multimodal
+Model Escapes the Datacenter [approved] — news: 2026-07-14" — reused
+loadTopics' existing fetch, original_date is a plain YYYY-MM-DD string
+so it needed no reformatting to match the existing "event:" label style
+already used in the expanded run card.
+
+**approved_at wired into /pipeline's date trail.** Session 6 added
+topics.approved_at and displayed it on /topics, but the batch fetch
+building the run-card date map on /pipeline never selected it — only
+original_date and source_raw_news_item_id. Small fix: added
+approved_at to that select, added it to the per-run dates object, added
+a third conditional "approved: {date}" span alongside the existing
+event:/telegram: lines. All three now show together on runs linked to
+topics approved after migration 018 shipped. Runs linked to topics
+approved BEFORE that migration correctly show no approved: date (no
+historical value exists to show) — same expected-null pattern as
+everywhere else this session.
+
+**Pipeline run archiving added — same pattern as the Topics archive,
+one real design decision made explicitly first.** "7 days old" on
+Pipeline is ambiguous in a way it wasn't on Topics (a run could be aged
+by its own created_at, by how long since approval, or by the
+underlying news event's age) — decided explicitly: age is measured via
+the LINKED TOPIC's original_date, same concept as Topics' archive, not
+the run's own created_at. Real, accepted consequence of this choice:
+any run generated via "Paste text" mode (topic_id = null) has no
+original_date to check against and can NEVER be archived by this rule,
+regardless of how long it sits — this is deliberate, not a gap.
+
+- Migration 020 (pipeline_runs_archived_status.sql) — confirmed via a
+  live PATCH probe that pipeline_runs_status_check already existed
+  covering (draft, approved, published) with no 'archived' value.
+  Extended to 4 values, identical drop/re-add pattern as migration 019.
+  Applied and verified live before any code touched it this time —
+  lesson from migration 019's gotcha (written but not run) was applied
+  correctly here on the first attempt.
+- "Archive runs older than 7 days" button on /pipeline: real count
+  shown before confirming, only touches status IN ('draft','approved')
+  — published runs are NEVER auto-archived regardless of age (real,
+  finished work isn't queue clutter), and topic_id = null runs are
+  never touched (see above). Status flip only, fully reversible.
+- Archived runs live in a NEW second section on the EXISTING /archive
+  page ("Pipeline runs", below the existing archived-topics section) —
+  not a separate /archive-runs route. Deliberate choice: avoids a new
+  nav entry and a duplicated page shell; the existing page's simple
+  list structure made a second section cheap to add.
+- Un-archiving a run sets status back to 'draft' — NOT 'pending_review'
+  (that value never existed on pipeline_runs; the only three values
+  ever were draft/approved/published). Correct attention to this
+  project's real vocabulary rather than copy-pasting the Topics
+  pattern blindly.
+
+**Real build-break, found and fixed — worth remembering the shape of
+this bug specifically.** When Claude Code added the new "Pipeline runs"
+section to app/archive/page.js, it inserted the new JSX AFTER the
+existing component's closing `</div>\n    </div>\n  );\n}` sequence
+instead of before it — meaning the file had TWO closing sequences: one
+premature (right after the topics section, prematurely ending the
+component's single top-level returned element) and one genuine (at the
+true end of the file, after the new Pipeline runs section). Vercel's
+build failed with a real, specific Turbopack parse error:
+"Expected ',', got '{'" pointing exactly at the orphaned JSX comment
+that followed the premature closing tag — the new section was
+syntactically outside the function's `return (...)` entirely.
+
+Fix: removed the premature `</div>\n    </div>` pair, letting the new
+section live inside the single outer wrapping div that the file's real
+(correct) closing tags at the end already closed. Confirmed via a full
+local `npm run build` completing cleanly (all 19 routes compiled,
+including /archive) BEFORE deploying — this is the correct verification
+step for any future JSX-heavy multi-section page edit, not just
+`git push` and hope Vercel's build succeeds. Running `npm run build`
+locally first would have caught this before it ever reached Vercel.
+
+**Pattern worth watching for in future multi-section page edits:**
+when an AI agent is told to "add a new section to an existing page,"
+double-check it inserted the new JSX INSIDE the existing return
+statement's single top-level element, not after the component's
+closing tags. A local `npm run build` before pushing is the cheap,
+reliable way to catch this class of error immediately, rather than
+finding out via a failed Vercel deploy.
+
+### Immediate open items, updated priority order (end of Session 8)
+
+1. Same as end of Session 7, item 1 — none of the 7 grounded roadmap
+   design docs (Days 1, 2a, 3a, 3b, 5, 6, 7) have been sent to Codex or
+   built yet. Still the actual next step whenever building resumes.
+2. Corpus still 0 rows — unchanged, still the single highest-priority
+   gap across every session so far.
+3-8. All other open items from end of Session 7 remain open and
+   unchanged by this session's work (Cron Jobs group confirmation,
+   xAI/Grok, nav consolidation, prompt-injection quarantine, CLAUDE.md/
+   AGENTS.md still boilerplate, topics.score column decision).
+9. NEW: before any future edit that adds a new section to an existing
+   multi-part page, run `npm run build` locally before pushing — this
+   session's archive-page build break would have been caught
+   immediately rather than after a failed Vercel deploy.
