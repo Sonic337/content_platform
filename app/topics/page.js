@@ -47,6 +47,19 @@ export default function TopicsPage() {
   const [analyzeResult, setAnalyzeResult] = useState(null);
 
   const [tableKey, setTableKey] = useState(0);
+  const [rawItemsMap, setRawItemsMap] = useState({});
+
+  useEffect(() => {
+    supabase
+      .from("raw_news_items")
+      .select("id, posted_at")
+      .then(({ data }) => {
+        if (!data) return;
+        const map = {};
+        for (const r of data) map[r.id] = r;
+        setRawItemsMap(map);
+      });
+  }, [tableKey]);
 
   const loadRawItems = useCallback(async () => {
     setLoadingRaw(true);
@@ -127,7 +140,10 @@ export default function TopicsPage() {
   }
 
   async function handleApprove(id) {
-    await supabase.from("topics").update({ status: "approved" }).eq("id", id);
+    await supabase
+      .from("topics")
+      .update({ status: "approved", approved_at: new Date().toISOString() })
+      .eq("id", id);
     setTableKey((k) => k + 1);
   }
 
@@ -348,7 +364,9 @@ export default function TopicsPage() {
           { key: "source_name", label: "Source" },
           { key: "tags", label: "Tags" },
           { key: "status", label: "Status" },
-          { key: "date_added", label: "Added" },
+          { key: "original_date", label: "Event date" },
+          { key: "date_added", label: "Added", format: (v) => v ? new Date(v).toLocaleDateString() : "" },
+          { key: "approved_at", label: "Approved", format: (v) => v ? new Date(v).toLocaleDateString() : "" },
         ]}
         formFields={[
           { key: "title", label: "Title", type: "text" },
@@ -377,10 +395,16 @@ export default function TopicsPage() {
             row.status === "approved" || row.status === "rejected";
           const hasReasoning = Boolean(row.ai_reasoning);
           const isBorderline = row.ai_reasoning?.includes("[BORDERLINE]");
-          if (!hasPending && !hasRevertable && !hasReasoning) return null;
+          const rawItem = row.source_raw_news_item_id ? rawItemsMap[row.source_raw_news_item_id] : null;
+          if (!hasPending && !hasRevertable && !hasReasoning && !rawItem) return null;
 
           return (
             <div style={{ marginTop: "12px" }}>
+              {rawItem?.posted_at && (
+                <div style={{ ...mono, fontSize: "11px", color: "#7C8489", marginBottom: "8px" }}>
+                  telegram: {new Date(rawItem.posted_at).toLocaleDateString()}
+                </div>
+              )}
               {hasReasoning && (
                 <div
                   style={{

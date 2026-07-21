@@ -62,7 +62,7 @@ const labelStyle = {
 
 // ── Single run card ──────────────────────────────────────────────────────────
 
-function RunCard({ run, onUpdated }) {
+function RunCard({ run, onUpdated, dates }) {
   const [expanded, setExpanded] = useState(false);
   const [selectedHook, setSelectedHook] = useState(run.selected_hook ?? "");
   const [selectedHookTier, setSelectedHookTier] = useState(run.selected_hook_tier ?? null);
@@ -126,6 +126,12 @@ function RunCard({ run, onUpdated }) {
           <span style={{ color: "#7C8489" }}>
             {run.created_at ? new Date(run.created_at).toLocaleDateString() : ""}
           </span>
+          {dates?.original_date && (
+            <span style={{ color: "#7C8489" }}>event: {dates.original_date}</span>
+          )}
+          {dates?.posted_at && (
+            <span style={{ color: "#7C8489" }}>telegram: {new Date(dates.posted_at).toLocaleDateString()}</span>
+          )}
           <span style={{ color: "#7C8489" }}>{expanded ? "▲ collapse" : "▼ expand"}</span>
         </div>
       </div>
@@ -383,6 +389,10 @@ export default function PipelinePage() {
   const [genError, setGenError] = useState(null);
   const [runs, setRuns] = useState([]);
   const [loadingRuns, setLoadingRuns] = useState(true);
+  const [runDatesMap, setRunDatesMap] = useState({});
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [sortOrder, setSortOrder] = useState("desc");
 
   const loadRuns = useCallback(async () => {
     setLoadingRuns(true);
@@ -409,6 +419,41 @@ export default function PipelinePage() {
     loadRuns();
     loadTopics();
   }, [loadRuns, loadTopics]);
+
+  useEffect(() => {
+    if (runs.length === 0) return;
+    async function fetchRunDates() {
+      const topicIds = [...new Set(runs.map((r) => r.topic_id).filter(Boolean))];
+      if (topicIds.length === 0) return;
+      const { data: topicsData } = await supabase
+        .from("topics")
+        .select("id, original_date, source_raw_news_item_id")
+        .in("id", topicIds);
+      if (!topicsData?.length) return;
+      const topicMap = Object.fromEntries(topicsData.map((t) => [t.id, t]));
+      const rawIds = [...new Set(topicsData.map((t) => t.source_raw_news_item_id).filter(Boolean))];
+      let rawMap = {};
+      if (rawIds.length > 0) {
+        const { data: rawData } = await supabase
+          .from("raw_news_items")
+          .select("id, posted_at")
+          .in("id", rawIds);
+        if (rawData) rawMap = Object.fromEntries(rawData.map((r) => [r.id, r]));
+      }
+      const datesMap = {};
+      for (const run of runs) {
+        if (!run.topic_id) continue;
+        const topic = topicMap[run.topic_id];
+        if (!topic) continue;
+        datesMap[run.id] = {
+          original_date: topic.original_date ?? null,
+          posted_at: topic.source_raw_news_item_id ? (rawMap[topic.source_raw_news_item_id]?.posted_at ?? null) : null,
+        };
+      }
+      setRunDatesMap(datesMap);
+    }
+    fetchRunDates();
+  }, [runs]);
 
   async function handleGenerate(e) {
     e.preventDefault();
@@ -635,28 +680,68 @@ export default function PipelinePage() {
       </form>
 
       {/* ── Past runs ── */}
-      <div style={{ ...mono, fontSize: "11px", color: "#7C8489", marginBottom: "12px" }}>
-        {loadingRuns ? "Loading runs…" : `${runs.length} runs`}
+      <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "12px", flexWrap: "wrap" }}>
+        <span style={{ ...mono, fontSize: "11px", color: "#7C8489" }}>
+          {loadingRuns ? "Loading runs…" : `${runs.length} runs`}
+        </span>
+        <input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          style={{ ...mono, fontSize: "11px", backgroundColor: "#171D21", border: "1px solid #232B31", borderRadius: "3px", padding: "3px 8px", color: "#E8E6DE", cursor: "pointer" }}
+        />
+        <span style={{ ...mono, fontSize: "11px", color: "#7C8489" }}>→</span>
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          style={{ ...mono, fontSize: "11px", backgroundColor: "#171D21", border: "1px solid #232B31", borderRadius: "3px", padding: "3px 8px", color: "#E8E6DE", cursor: "pointer" }}
+        />
+        <button
+          onClick={() => setSortOrder((o) => (o === "desc" ? "asc" : "desc"))}
+          style={{ ...mono, background: "none", border: "none", padding: "0", fontSize: "11px", color: "#7C8489", cursor: "pointer", letterSpacing: "0.03em" }}
+        >
+          {sortOrder === "desc" ? "newest first" : "oldest first"}
+        </button>
+        {(dateFrom || dateTo) && (
+          <button
+            onClick={() => { setDateFrom(""); setDateTo(""); }}
+            style={{ ...mono, background: "none", border: "none", padding: "0", fontSize: "11px", color: "#7C8489", cursor: "pointer" }}
+          >
+            clear
+          </button>
+        )}
       </div>
 
-      <div style={{ borderTop: "1px solid #232B31" }}>
-        {!loadingRuns && runs.length === 0 && (
-          <div
-            style={{
-              padding: "32px",
-              textAlign: "center",
-              ...mono,
-              fontSize: "12px",
-              color: "#7C8489",
-            }}
-          >
-            No runs yet. Generate one above.
+      {(() => {
+        const filtered = [...runs]
+          .filter((run) => {
+            if (!dateFrom && !dateTo) return true;
+            const d = run.created_at?.slice(0, 10);
+            if (!d) return true;
+            if (dateFrom && d < dateFrom) return false;
+            if (dateTo && d > dateTo) return false;
+            return true;
+          })
+          .sort((a, b) => {
+            const aDate = new Date(a.created_at || 0);
+            const bDate = new Date(b.created_at || 0);
+            return sortOrder === "desc" ? bDate - aDate : aDate - bDate;
+          });
+
+        return (
+          <div style={{ borderTop: "1px solid #232B31" }}>
+            {!loadingRuns && filtered.length === 0 && (
+              <div style={{ padding: "32px", textAlign: "center", ...mono, fontSize: "12px", color: "#7C8489" }}>
+                {runs.length === 0 ? "No runs yet. Generate one above." : "No runs match the selected date range."}
+              </div>
+            )}
+            {filtered.map((run) => (
+              <RunCard key={run.id} run={run} onUpdated={handleRunUpdated} dates={runDatesMap[run.id] ?? null} />
+            ))}
           </div>
-        )}
-        {runs.map((run) => (
-          <RunCard key={run.id} run={run} onUpdated={handleRunUpdated} />
-        ))}
-      </div>
+        );
+      })()}
     </div>
   );
 }

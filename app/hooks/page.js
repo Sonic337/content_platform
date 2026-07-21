@@ -33,6 +33,9 @@ export default function HooksPage() {
   const [platformSelections, setPlatformSelections] = useState({});
   // transformResults: `${hookId}:${platform}` → { text, tier, loading, error }
   const [transformResults, setTransformResults] = useState({});
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [sortOrder, setSortOrder] = useState("desc");
 
   function getResultKey(hookId, platform) {
     return `${hookId}:${platform}`;
@@ -211,6 +214,36 @@ export default function HooksPage() {
         Seeded from master_hook_bank.xlsx. Evidence tier tells you whether a
         hook is safe to reuse or still a hypothesis.
       </p>
+      <div style={{ display: "flex", alignItems: "center", gap: "12px", marginBottom: "16px", flexWrap: "wrap" }}>
+        <span style={{ ...mono, fontSize: "11px", color: "#7C8489" }}>Last used</span>
+        <input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          style={{ ...mono, fontSize: "11px", backgroundColor: "#171D21", border: "1px solid #232B31", borderRadius: "3px", padding: "3px 8px", color: "#E8E6DE", cursor: "pointer" }}
+        />
+        <span style={{ ...mono, fontSize: "11px", color: "#7C8489" }}>→</span>
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          style={{ ...mono, fontSize: "11px", backgroundColor: "#171D21", border: "1px solid #232B31", borderRadius: "3px", padding: "3px 8px", color: "#E8E6DE", cursor: "pointer" }}
+        />
+        <button
+          onClick={() => setSortOrder((o) => (o === "desc" ? "asc" : "desc"))}
+          style={{ ...mono, background: "none", border: "none", padding: "0", fontSize: "11px", color: "#7C8489", cursor: "pointer", letterSpacing: "0.03em" }}
+        >
+          {sortOrder === "desc" ? "newest first" : "oldest first"}
+        </button>
+        {(dateFrom || dateTo) && (
+          <button
+            onClick={() => { setDateFrom(""); setDateTo(""); }}
+            style={{ ...mono, background: "none", border: "none", padding: "0", fontSize: "11px", color: "#7C8489", cursor: "pointer" }}
+          >
+            clear
+          </button>
+        )}
+      </div>
       <DataTable
         table="hooks"
         bodyKey="hook_text"
@@ -249,6 +282,27 @@ export default function HooksPage() {
           { key: "notes", label: "Notes", type: "textarea" },
         ]}
         renderRowFooter={renderRowFooter}
+        sortRows={(rows) => {
+          let result = [...rows];
+          if (dateFrom || dateTo) {
+            result = result.filter((r) => {
+              if (!r.last_used_at) return false;
+              const d = r.last_used_at.slice(0, 10);
+              if (dateFrom && d < dateFrom) return false;
+              if (dateTo && d > dateTo) return false;
+              return true;
+            });
+          }
+          result.sort((a, b) => {
+            const aDate = a.last_used_at ? new Date(a.last_used_at) : null;
+            const bDate = b.last_used_at ? new Date(b.last_used_at) : null;
+            if (!aDate && !bDate) return 0;
+            if (!aDate) return 1;
+            if (!bDate) return -1;
+            return sortOrder === "desc" ? bDate - aDate : aDate - bDate;
+          });
+          return result;
+        }}
       />
     </div>
   );
