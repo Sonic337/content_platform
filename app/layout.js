@@ -32,6 +32,7 @@ const NAV_ITEMS = [
   { href: "/analytics", label: "Analytics" },
   { href: "/import-review", label: "Import review" },
   { href: "/hook-performance", label: "Hook perf." },
+  { href: "/archive", label: "Archive" },
 ];
 
 export default function RootLayout({ children }) {

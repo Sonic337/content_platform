@@ -10,7 +10,7 @@ const mono = { fontFamily: "var(--font-ibm-plex-mono)" };
 // Keep in sync with FETCH_WINDOW_HOURS in app/api/fetch-group-news/route.js
 const FETCH_WINDOW_HOURS = 48;
 
-const TOPIC_STATUSES = ["approved", "pending_review", "rejected", "archived"];
+const TOPIC_STATUSES = ["approved", "pending_review", "rejected"];
 const ARCHIVE_AGE_DAYS = 7;
 
 function btnStyle(color, disabled) {
@@ -428,7 +428,6 @@ export default function TopicsPage() {
         tierKey="status"
         tierFilterKey="status"
         allTierOptions={TOPIC_STATUSES}
-        defaultExcludedTiers={["archived"]}
         getRowColors={(row) => topicStatusColors(row.status)}
         columns={[
           { key: "title", label: "Title" },
