@@ -132,6 +132,9 @@ function RunCard({ run, onUpdated, dates }) {
           {dates?.posted_at && (
             <span style={{ color: "#7C8489" }}>telegram: {new Date(dates.posted_at).toLocaleDateString()}</span>
           )}
+          {dates?.approved_at && (
+            <span style={{ color: "#7C8489" }}>approved: {new Date(dates.approved_at).toLocaleDateString()}</span>
+          )}
           <span style={{ color: "#7C8489" }}>{expanded ? "▲ collapse" : "▼ expand"}</span>
         </div>
       </div>
@@ -427,7 +430,7 @@ export default function PipelinePage() {
       if (topicIds.length === 0) return;
       const { data: topicsData } = await supabase
         .from("topics")
-        .select("id, original_date, source_raw_news_item_id")
+        .select("id, original_date, source_raw_news_item_id, approved_at")
         .in("id", topicIds);
       if (!topicsData?.length) return;
       const topicMap = Object.fromEntries(topicsData.map((t) => [t.id, t]));
@@ -448,6 +451,7 @@ export default function PipelinePage() {
         datesMap[run.id] = {
           original_date: topic.original_date ?? null,
           posted_at: topic.source_raw_news_item_id ? (rawMap[topic.source_raw_news_item_id]?.posted_at ?? null) : null,
+          approved_at: topic.approved_at ?? null,
         };
       }
       setRunDatesMap(datesMap);
