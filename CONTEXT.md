@@ -296,28 +296,6 @@ Verified with 3 real generation tests (TikTok/result-first, Instagram Reels/buil
 
 ---
 
-## Session 5 — topic linking fix, generate route thinking-behavior confirmed
-
-_2026-07-20._
-
-**Fixed:** pipeline_runs.topic_id was bigint against topics.id being uuid
-(migration 016) — a valid FK relationship was never actually possible.
-Confirmed 31 existing rows all had topic_id = null before the fix, no
-data lost. Separately, app/pipeline/page.js's "Pick topic" flow was
-calling Number(topicId) on what is a UUID string, which silently
-produced NaN -> null on every request, meaning topic linking never
-worked from the UI even before the schema was wrong. Both fixed
-together; confirmed working end-to-end via a real generate call showing
-a populated topic_id in the resulting row.
-
-**Investigated, not a bug:** app/api/generate/route.js's Anthropic calls
-return `content block types: ['thinking', 'text']` on every request.
-Confirmed via direct grep that nothing in this codebase explicitly
-enables thinking -- this is claude-sonnet-5's default behavior, already
-correctly handled by the existing `msg.content.find(b => b.type ===
-"text")` pattern (never content[0]). Nothing to toggle here; do not
-re-investigate this as a bug.
-
 ## Session 4 — Hermes/Sparkron news ingestion + AI analysis pipeline (this session)
 
 ### What was built, in order (see git log c20a964..HEAD for full commit list)
@@ -389,7 +367,7 @@ re-investigate this as a bug.
   including confirmed correct dedup behavior across repeated real clicks
   (second click on same time window: 0 new, 10 duplicates).
 
-**3. AI analysis pipeline — "Run News" (commits 958b450, 477a919, 59dfae9) — PARTIALLY WORKING, ONE KNOWN BUG, SEE BELOW**
+**3. AI analysis pipeline — "Run News" (commits 958b450, 477a919, 59dfae9) — bug below was FIXED in Session 6, see that section**
 - New migration 015: added `status` column values expanded from the
   pre-existing ('new','reviewed','used') to ('approved','pending_review',
   'rejected'); all 20 pre-existing seeded topics migrated to 'approved'.
@@ -415,7 +393,7 @@ re-investigate this as a bug.
   "Process" buttons, "Run news" batch button, Approve/Reject buttons on
   pending_review rows with ai_reasoning shown inline.
 
-  **KNOWN BUG, UNRESOLVED AS OF END OF THIS SESSION:**
+  **KNOWN BUG AT THE TIME, FIXED IN SESSION 6 — kept here for the original diagnostic detail:**
   Real Sparkron/Hermes cron-brief digest messages (format: "Cronjob
   Response: twice-daily-x-reddit-feed-brief-XXXX", containing ~10
   numbered findings) are being rejected WHOLESALE by Step 1's relevance
@@ -458,27 +436,335 @@ re-investigate this as a bug.
   TELEGRAM_GROUP_IDENTIFIER (group-fetch path — TELEGRAM_USER_SESSION is
   high-sensitivity, treat as equivalent to an account password)
 
-### Immediate open items, updated priority order
-1. **Fix the digest-relevance bug in /api/analyze-news Step 1** (see
-   above) — this blocks the entire point of today's session, which was
-   getting real Sparkron/Hermes-style digest content usably split into
-   individual topics. Fix is scoped, not yet implemented.
-2. Once fixed: reset raw_news_items id 3c92daea-b3e7-4e91-9174-4265ef8749d1
-   (or whichever real digest is available) to 'unprocessed' and re-test
-   via "Process this one," verify multiple specific topics get created.
-3. Decide what to do with the existing broad "Trend Digest..." meta-topic
-   once split candidates exist alongside it — likely reject/delete it in
-   favor of the specific split versions.
-4. Remove or keep the debug console.log lines added this session, once
-   the fix is confirmed stable.
-5. This session's ingestion (webhook + group-fetch) was tested against a
-   PERSONAL TEST BOT and the "Cron Jobs" GROUP — not yet pointed at
-   Sparkron/Hermes's actual production bot/feed if that's different from
-   what's already connected. Confirm whether "Cron Jobs" group IS the
-   real intended source or a separate test setup.
-6. xAI/Grok integration for X-specific viral/saturation signal —
-   deliberately deferred, not started.
-7. Everything from the original "Immediate open items" list (Corpus 0
-   rows, defaultExcludedTiers unstable-reference risk, platform
-   benchmarks/X video-length reports unused) is still open and unchanged
-   by this session.
+### Items from this session, resolved status as of Session 6
+1. ~~Fix the digest-relevance bug~~ — FIXED, see Session 6.
+2. ~~Reset raw item, re-test~~ — DONE, confirmed working, see Session 6.
+3. ~~Decide on the broad 'Trend Digest...' meta-topic~~ — RESOLVED, it was
+   deleted during Session 6's debugging pass (isolated to test the
+   dedup collision) and never recreated. No longer present.
+4. Debug console.log lines — REMOVED in Session 6, then a DIFFERENT set
+   of debug logging was added and removed again for the timeout
+   investigation. None remain as of Session 7 (see below).
+5. Ingestion was tested against a PERSONAL TEST BOT and the "Cron Jobs"
+   group — this is STILL the case as of Session 7. Not yet confirmed
+   whether this is the final intended production source or a
+   standing test setup. Still open.
+6. xAI/Grok integration — STILL deferred, not started, not scheduled
+   in the current 7-day roadmap's grounded design docs either.
+7. Corpus is STILL 0 rows as of Session 7 — still the single highest-
+   priority gap. defaultExcludedTiers risk — not revisited, still open
+   but low urgency. Platform benchmarks/X video-length reports — still
+   unused, still deliberately held in reserve pending real Analytics data.
+
+## Session 5 — topic linking fix, generate route thinking-behavior confirmed
+
+_2026-07-20._
+
+**Fixed:** pipeline_runs.topic_id was bigint against topics.id being uuid
+(migration 016) — a valid FK relationship was never actually possible.
+Confirmed 31 existing rows all had topic_id = null before the fix, no
+data lost. Separately, app/pipeline/page.js's "Pick topic" flow was
+calling Number(topicId) on what is a UUID string, which silently
+produced NaN -> null on every request, meaning topic linking never
+worked from the UI even before the schema was wrong. Both fixed
+together; confirmed working end-to-end via a real generate call showing
+a populated topic_id in the resulting row.
+
+**Investigated, not a bug:** app/api/generate/route.js's Anthropic calls
+return `content block types: ['thinking', 'text']` on every request.
+Confirmed via direct grep that nothing in this codebase explicitly
+enables thinking -- this is claude-sonnet-5's default behavior, already
+correctly handled by the existing `msg.content.find(b => b.type ===
+"text")` pattern (never content[0]). Nothing to toggle here; do not
+re-investigate this as a bug.
+
+
+
+## Session 6 — analyze-news timeout/billing bug, multi-date tracking, archive system
+
+_2026-07-21._
+
+**Fixed: analyze-news silently burned paid API calls on timeout.**
+maxDuration was 120s. Running "Run news" on a large batch (13+ raw
+items) triggered a Vercel 504 kill mid-batch. Every Anthropic call
+already made before the kill (Step 1 scoring, dedup checks, saturation
+searches) was already billed, but the function was killed before
+reaching the status update for whatever item it was on — so those
+items stayed 'unprocessed' and would be re-billed in full on the next
+click, with zero record anything had happened. Real cost was lost
+confirmed via a live count query: a 13-item batch left only 4 processed,
+9 still unprocessed, with no visibility into what happened beyond a
+confusing "Unexpected token 'A'" JSON-parse error on the frontend (the
+frontend was trying to parse Vercel's plain-text timeout page as JSON).
+
+Fix: maxDuration raised to 300 (Vercel's real hard ceiling on this
+plan — there is no higher config value, do not try to raise it
+further). A time-budget check (BUDGET_MS, currently 200_000 — lowered
+from an initial 270_000 after real production data showed items take
+longer than originally estimated) runs at the top of each outer loop
+iteration, before starting a new item. If the budget is exceeded, the
+loop stops cleanly, returns { stoppedEarly: true,
+remainingUnprocessedCount: N } instead of letting Vercel kill it
+uncontrolled. app/topics/page.js shows this clearly in amber
+(matching the existing warning color) with a "click Run news to
+continue" prompt. Confirmed the existing loop was already fully
+sequential (no Promise.all/hidden parallelism) before this fix, so
+each item's work fully commits before the next starts — verified via
+direct code read, not assumed.
+
+Separately confirmed: part of the same outage was the Anthropic API
+key running out of credit (user manually confirmed and refilled,
+$10). The timeout bug and the credit exhaustion were two independent,
+compounding problems, not one bug — both are now resolved.
+
+**Multi-date tracking added.** Three real dates were already
+capturable but not displayed or connected: raw_news_items.posted_at
+(Telegram's own message timestamp — accurate even if you fetch late),
+topics.original_date (the underlying news event's date, set by
+analyze-news), and a NEW column topics.approved_at (migration 018,
+nullable, NOT backfilled for existing approved rows — no way to
+reconstruct historical approval timestamps, a null approved_at on an
+old approved row is correct/expected, not a bug). Set at approval time
+in the same write as the status change.
+
+- /topics now shows all three dates per row (batch-fetched, not N+1)
+  where available: "news:", "telegram:" (only if
+  source_raw_news_item_id resolves), "approved:" (only if set).
+- /pipeline shows the same trail on generated runs with a linked
+  topic_id (batch-fetched via a NEW two-step join this session —
+  app/pipeline/page.js previously only WROTE topic_id, never read
+  anything back from topics). Runs with topic_id = null (Paste Text
+  mode) correctly show no topic-linked dates, handled as a normal case.
+- The "Pick topic" dropdown's OPTION LIST now also shows original_date
+  per option, so a topic's age is visible before selecting it, not
+  just after (small follow-up fix same session).
+- Confirmed: the 20 originally seeded topics (manually inserted before
+  the Telegram pipeline existed) have source_raw_news_item_id = null —
+  they will never show a "telegram:" date. This is correct, not a bug.
+
+**Date filters added to /pipeline and /hooks** — date-range (from/to)
++ sort toggle (newest/oldest). On /hooks: confirmed via direct schema
+read (008_hook_usage_tracking.sql, 001_alpha_schema.sql) that hooks has
+NO created_at column and a random (non-sequential) UUID primary key —
+meaning hooks that have never been used in a generation have
+last_used_at = null and genuinely NO date to fall back to. These
+correctly sort last in both directions and are excluded from an active
+date-range filter, rather than faking a date.
+
+**Archive system built** — a manual "Archive news older than 7 days"
+button on /topics. Pure database date comparison
+(topics.original_date < current_date - 7 days) — deliberately, explicitly
+NO Anthropic API calls anywhere in this feature (an initial request
+asked for an AI-driven age check; this was corrected to a free date
+comparison since original_date already exists and an API call would
+have been paying to re-derive a fact already in a column).
+
+- Migration 019 added 'archived' as a 4th valid topics.status value.
+  Archiving is a status flip only — NEVER a real delete, fully
+  reversible.
+- Real gotcha hit and fixed: migration 019 was written and committed to
+  git early in the session, but NOT actually run in Supabase — the
+  constraint update was skipped in the rush to test the feature. First
+  attempt to archive failed with a real check-constraint violation.
+  Same lesson as every prior migration this project: a migration file
+  existing and being committed is NOT the same as it being applied to
+  the live database — always verify via a real
+  pg_get_constraintdef/information_schema query, never assume.
+- Archiving only touches topics with status IN
+  ('pending_review','approved') that have NO linked pipeline_runs row —
+  a topic already generated from is never silently archived out from
+  under existing generated content.
+- Confirmed real first-run consequence: all ~20 originally seeded
+  topics (original_date values from June 30–July 10) were swept up on
+  the very first click, since they predate the 7-day window by months
+  and have no linked runs. This is correct behavior, not a bug — they
+  are now sitting in /archive, fully recoverable.
+- A DEDICATED /archive page was built (app/archive/page.js) rather than
+  a 4th filter pill on /topics — this was a deliberate reconsideration
+  mid-session: the filter-pill approach was originally built and
+  scoped, then explicitly replaced with a separate page for cleaner
+  separation once discussed. /topics' filter pills remain exactly the
+  original three values (approved/pending_review/rejected). /archive
+  reuses the same visual row pattern as DataTable by hand (custom
+  fetch with .eq("status","archived"), not a DataTable prop change —
+  DataTable's core fetch logic wasn't extensible to a single extra
+  WHERE clause without adding a new prop, and the brief explicitly said
+  not to restructure it) and has its own "Un-archive" action
+  (sets status back to pending_review). Added as a real nav entry in
+  app/layout.js — this was the first direct read of that file in this
+  project's history; confirmed real, uses plain <a href> tags (not
+  next/link), so all nav clicks are full page reloads, consistent with
+  app/page.js's same pattern noted in an earlier session.
+
+---
+
+## Session 7 — 7-day roadmap: grounded design docs + Codex prompts for Days 1, 2a, 3a, 3b, 5, 6, 7
+
+_2026-07-20/21._
+
+A 7-day feature roadmap (see 7_Day_Roadmap.md and Ideas.md, both
+committed to the repo root) was planned in a separate planning
+conversation, then handed off for implementation via Codex, following
+a real engineering workflow shared by the project's other stakeholder
+(Harish) — full detail of that workflow is in the repo's own
+docs/design/ files and the H10-style prompt structure adopted from it.
+
+**Process adopted, matching Harish's own working method:**
+- Every implementation task gets a real design doc first
+  (docs/design/DAYx_DESIGN.md), grounded by actually reading the real
+  current files it touches — never written from memory or from
+  CONTEXT.md's prose alone. Multiple days required 2-3 rounds of "read
+  this real file first" before the design doc could be trusted (Day 1
+  needed lib/tierColor.js, app/hooks/page.js, app/import-review/page.js,
+  app/hook-performance/page.js all read directly before §6/§7 could be
+  written correctly; Day 3's kanban/next-best-idea items were
+  discovered to depend on the topic_id linking fix and were split into
+  their own Day 3b once that was confirmed working).
+- Every design doc has a matching Codex goal-prompt, H10-style: exact
+  files to read first, "operator decisions already approved" (so Codex
+  never re-litigates things already decided), explicit non-goals,
+  concrete acceptance criteria, a "push back on the brief" section.
+- Every prompt ends with an IMPROVEMENT LICENSE clause (added mid-
+  roadmap, applies to all 7 days): Codex may build genuine improvements
+  beyond what's scoped, not just flag them — with two hard rules: never
+  reopen/override anything in "operator decisions already approved" or
+  the explicit non-goals list (those go in the report as a suggestion,
+  not into code), and every self-initiated improvement commits
+  separately, labeled "IMPROVEMENT (not in original brief): ..." so a
+  human reviewer can accept/reject it independently from the scoped
+  task.
+- Nothing Codex builds gets pushed or merged by Codex itself — commits
+  to its own branch and stops; a human (or a Claude Code session)
+  reviews the real diff, pushes, and opens the PR. This mirrors the
+  session's own long-standing discipline (never trust a summary,
+  always get the real artifact) applied to a second AI agent, not just
+  the first.
+
+**Real bugs found and fixed WHILE grounding the roadmap** (i.e., before
+any Codex prompt was even written — this is the same "verify before
+building" discipline the project already had, just applied one level
+earlier, at the planning stage):
+- pipeline_runs.topic_id FK type mismatch (topics.id uuid vs bigint) —
+  fixed, migration 016. Confirmed via live query that all 31 existing
+  runs had topic_id = null before the fix (no data lost).
+- app/pipeline/page.js was calling Number(topicId) on a UUID string,
+  silently producing NaN → null on every request — meaning topic
+  linking never worked from the UI even before the schema was wrong.
+  Fixed same session as the FK fix. Confirmed working end-to-end via a
+  real generate call showing a populated topic_id.
+- SESSION_SUMMARY.md (a separate, undiscovered file containing real
+  Session 2 detail not folded into CONTEXT.md) was found and merged in
+  as the "Session 2" section above; the original file archived to
+  archive/SESSION_SUMMARY.md.
+- CLAUDE.md and AGENTS.md were confirmed to be generic Next.js
+  boilerplate, not project-specific instructions — noted as a real gap
+  in Harish's six-file convention (README/CLAUDE.md/AGENTS.md/context.md/
+  .gitignore/.env.example) that this project hasn't fully adopted yet;
+  not fixed this session, flagged for later.
+
+**Design docs + Codex prompts completed this session** (all committed
+to docs/design/):
+- **Day 1 — Command Center:** Real "Today" home page, cross-app "needs
+  attention" counter, status colors extended (not duplicated) in
+  lib/tierColor.js, aggregate-only content journey tracker. Nav
+  consolidation (originally roadmap item 5, folding /import-review and
+  /hook-performance into /hooks) was explicitly SPLIT OUT and deferred
+  — reading the real files showed both are fully custom pages sharing
+  nothing with DataTable, making this a real restructure, not a
+  Day-1-sized addition. NOT YET SENT TO CODEX/BUILT as of end of this
+  session — still just a reviewed, ready design doc + prompt.
+- **Day 2a — Review speed:** Two-pass triage, keyboard-first review
+  (A/R/S + arrows), structured rejection reasons (7 fixed values,
+  new topics.rejection_reason column + check constraint), reusing the
+  existing "Raw messages" section's UI pattern rather than touching
+  DataTable.js. Pairwise review, approval snapshots, and expiry
+  deadlines were split into a deferred Day 2b (not designed this
+  session). Claim-diffing on regeneration was confirmed BLOCKED, not
+  just deferred — Pipeline has no regeneration feature at all, every
+  Generate click creates a brand new row, confirmed via full direct
+  read of app/pipeline/page.js. NOT YET SENT TO CODEX/BUILT.
+- **Day 3a — Pipeline items independent of topic linking:** In-place
+  editing of script segments/hooks/titles (whole-jsonb-column read/
+  mutate/write, never a partial patch), date-based (not usage-based)
+  staleness flag on approved topics, on-demand-only "Suggest platform"
+  action. NOT YET SENT TO CODEX/BUILT.
+- **Day 3b — Topic-linked Pipeline features:** Script history grouped
+  by topic, "next best idea" suggestion (approved topic, zero linked
+  runs, highest score), read-only 4-lane kanban board (Idea/Scripted/
+  Reviewed/Posted — explicitly NO "Ready to Film" lane, no such status
+  exists in the real schema, roadmap's original wording was wrong).
+  Depended on and is now unblocked by the topic_id fixes above.
+  NOT YET SENT TO CODEX/BUILT.
+- **Day 5 — Real intelligence, ingestion only:** New migration 017,
+  source_items table — a NEW, separate, source-agnostic staging table
+  for non-Telegram ingestion (changelogs, MCP scout, etc.), since
+  raw_news_items' bigint Telegram-specific ID columns don't generalize.
+  topics gained a second nullable FK, source_item_id (alongside the
+  existing source_raw_news_item_id — a topic traces to exactly one of
+  the two, enforced at the application level not a DB constraint).
+  analyze-news's request shape changes from
+  { rawNewsItemIds: [...] } to { items: [{id, table}] } so it can read/
+  write correctly across both source tables. Migration 017 IS APPLIED
+  (confirmed via live schema query, 8 real columns present). Scope for
+  this pass: ONE new source (a changelog watcher polling Anthropic/
+  OpenAI/Vercel/Cursor) — momentum scoring, cross-source convergence,
+  MCP scouting, and Grok/xAI integration all explicitly deferred, since
+  none of them mean anything with only one or zero non-Telegram sources
+  actually running yet. Prompt-injection quarantine (treating scraped
+  content as untrusted before it reaches a Claude call) was flagged as
+  a real, relevant gap but deliberately scoped as its own future design
+  doc, not bundled in here. NOT YET SENT TO CODEX/BUILT.
+- **Day 6 — Close the loop, explicitly narrow "done":** /analytics is
+  confirmed still empty/near-empty. This doc's Definition of Done
+  means "runs correctly against zero/sparse rows," NOT "proven correct
+  against real outcomes" — stated explicitly so this distinction can't
+  get blurred later. Topic-performance audit page (parallel to the
+  existing hook-performance pattern), weekly-recap route (must detect
+  insufficient data in code BEFORE calling Claude, never let the model
+  fabricate insight from 0-1 data points), and only the data-plumbing
+  prerequisite for future score-calibration — the actual calibration
+  logic is explicitly NOT built, deferred until real volume exists.
+  Small bundled fix: the /analytics pipeline-run dropdown now shows the
+  linked topic's title, not just the run's own title. NOT YET SENT TO
+  CODEX/BUILT.
+- **Day 7 — Polish, one combined doc** (unlike every other day's
+  splits — genuinely low-risk across the board, no real blocker
+  justified splitting it): dismissible first-time walkthrough
+  (localStorage — confirmed fine to use here since this is a real
+  deployed page, not a sandboxed artifact context), hover explainers on
+  badges (one shared constant file, not per-page duplication), a
+  READ-ONLY settings page (explicitly NOT editable in this pass — the
+  niche description and scoring thresholds are hardcoded constants/
+  prose text, not DB rows; a real editable version needs its own future
+  design decision about a config table vs. editing source files from a
+  UI), page-specific empty states, and a new activity_log table +
+  non-fatal logging calls at existing write points. Confirmed real
+  pre-existing inconsistency to surface honestly on the settings page:
+  NICHE_DESCRIPTION exists only in analyze-news/route.js, generate/
+  route.js has no equivalent constant at all. NOT YET SENT TO CODEX/
+  BUILT.
+
+### Immediate open items, updated priority order (end of Session 7)
+
+1. **None of Days 1, 2a, 3a, 3b, 5, 6, 7's design docs have actually
+   been sent to Codex or built yet** — all seven are fully grounded,
+   reviewed, and paired with ready Codex prompts, sitting in
+   docs/design/. This is the actual next step whenever building
+   resumes.
+2. Corpus is STILL 0 rows — still the single highest-priority gap,
+   unchanged across every session so far.
+3. Whether the "Cron Jobs" Telegram group is the final intended
+   production source or a standing test setup — still unconfirmed.
+4. xAI/Grok integration — still deferred, not scheduled in any grounded
+   design doc yet.
+5. Nav consolidation (/import-review, /hook-performance into /hooks) —
+   still deferred pending its own dedicated design pass; real
+   complexity confirmed, not just assumed.
+6. Prompt-injection quarantine for scraped content reaching Claude
+   calls — flagged as a real gap, not yet designed.
+7. CLAUDE.md/AGENTS.md are still generic boilerplate, not
+   project-specific — Harish's six-file convention isn't fully adopted.
+8. Whether topics.score should become a real column (vs. the current
+   text-parsing of "Score: N/10" out of ai_reasoning) — raised as an
+   open question in the Day 3b/Day 6 design docs, never explicitly
+   decided either way.
