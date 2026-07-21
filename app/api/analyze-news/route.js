@@ -60,7 +60,7 @@ When a single message contains multiple numbered findings, apply this scoring in
 
 // Stop starting new items after this many ms — leaves a 30 s buffer before
 // Vercel's 300 s kill so the in-flight item and the response write can finish.
-const BUDGET_MS = 270_000;
+const BUDGET_MS = 200_000;
 
 export async function POST(request) {
   const startTime = Date.now();
@@ -317,6 +317,7 @@ If score ≤ 3:
         .update({ status: "processed" })
         .eq("id", rawId);
 
+      console.log(`[analyze-news] item completed in ${Date.now() - startTime}ms (cumulative elapsed, id: ${rawId})`);
       stats.processed++;
     } catch (err) {
       stats.errors.push({ id: rawId, error: err.message ?? String(err) });
