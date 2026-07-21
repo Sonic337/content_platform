@@ -2,7 +2,8 @@ import { createServerClient } from "@/lib/supabaseServer";
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 
-export const maxDuration = 120;
+// 300 s is Vercel's hard ceiling for serverless functions on Pro; raising it further has no effect.
+export const maxDuration = 300;
 
 const NICHE_DESCRIPTION =
   "an internal content-operations dashboard for a two-person AI content creator operation producing short-form and long-form video (TikTok, Instagram Reels, YouTube Shorts, X, LinkedIn) about AI tools, vibe-coding, and build-in-public";
@@ -57,7 +58,12 @@ Score across four weighted dimensions, then combine:
 ## Digest handling
 When a single message contains multiple numbered findings, apply this scoring independently to EACH finding, not to the message as a whole. The message's overall framing/genre (digest, brief, trend report) has no bearing on any individual finding's score.`;
 
+// Stop starting new items after this many ms — leaves a 30 s buffer before
+// Vercel's 300 s kill so the in-flight item and the response write can finish.
+const BUDGET_MS = 270_000;
+
 export async function POST(request) {
+  const startTime = Date.now();
   const { rawNewsItemIds } = await request.json();
 
   if (!Array.isArray(rawNewsItemIds) || rawNewsItemIds.length === 0) {
@@ -87,9 +93,26 @@ export async function POST(request) {
     ignoredNotRelevant: 0,
     digestItemsSplit: 0,
     errors: [],
+    stoppedEarly: false,
+    remainingUnprocessedCount: 0,
   };
 
   for (const rawId of rawNewsItemIds) {
+    // Check time budget before starting a new item's API calls.
+    // An in-flight item can still finish; this only prevents starting new ones.
+    if (Date.now() - startTime > BUDGET_MS) {
+      stats.stoppedEarly = true;
+      // Count how many of the remaining IDs are still unprocessed in the DB.
+      const remaining = rawNewsItemIds.slice(rawNewsItemIds.indexOf(rawId));
+      const { count } = await supabase
+        .from("raw_news_items")
+        .select("id", { count: "exact", head: true })
+        .in("id", remaining)
+        .eq("status", "unprocessed");
+      stats.remainingUnprocessedCount = count ?? 0;
+      break;
+    }
+
     try {
       // Fetch the raw item — skip anything that isn't 'unprocessed'
       const { data: rawItem, error: fetchErr } = await supabase

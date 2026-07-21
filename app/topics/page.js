@@ -171,9 +171,10 @@ export default function TopicsPage() {
         <div style={{ display: "flex", alignItems: "center", gap: "12px", flexWrap: "wrap" }}>
           {/* Analyze result / fetch result inline labels */}
           {analyzeResult && !analyzeResult.error && (
-            <span style={{ ...mono, fontSize: "11px", color: "#7C8489" }}>
-              {analyzeResult.processed ?? 0} processed — {analyzeResult.createdTopics ?? 0} created,{" "}
-              {analyzeResult.ignoredNotRelevant ?? 0} not relevant, {analyzeResult.ignoredDuplicate ?? 0} duplicate
+            <span style={{ ...mono, fontSize: "11px", color: analyzeResult.stoppedEarly ? "#D9A257" : "#7C8489" }}>
+              {analyzeResult.stoppedEarly
+                ? `Processed ${analyzeResult.processed ?? 0} — time limit reached, ${analyzeResult.remainingUnprocessedCount ?? 0} remaining. Click Run news to continue.`
+                : `${analyzeResult.processed ?? 0} processed — ${analyzeResult.createdTopics ?? 0} created, ${analyzeResult.ignoredNotRelevant ?? 0} not relevant, ${analyzeResult.ignoredDuplicate ?? 0} duplicate`}
               {analyzeResult.errors?.length > 0 && (
                 <span style={{ color: "#C96158" }}>, {analyzeResult.errors.length} error{analyzeResult.errors.length !== 1 ? "s" : ""}</span>
               )}
